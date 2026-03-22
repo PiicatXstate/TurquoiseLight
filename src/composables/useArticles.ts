@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import type { Article, Folder, Annotation } from '@/types'
+import type { Article, Folder } from '@/types'
 import { loadArticles, saveArticles, createArticle, generateId, loadFolders, saveFolders, createFolder } from '@/utils/storage'
 
 const articles = ref<Article[]>(loadArticles())

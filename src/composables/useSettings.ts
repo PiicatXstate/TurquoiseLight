@@ -18,7 +18,8 @@ export function useSettings() {
       fontSize: 18,
       letterSpacing: 2,
       lineHeight: 1.8,
-      fontFamily: 'serif'
+      fontFamily: 'serif',
+      annotationFontSize: 14
     }
   }
 

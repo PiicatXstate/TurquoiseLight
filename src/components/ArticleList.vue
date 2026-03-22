@@ -23,15 +23,14 @@ const {
   toggleFavorite,
   moveArticle,
   addFolder,
-  deleteFolder,
-  reloadArticles,
-  reloadFolders
+  deleteFolder
 } = useArticles()
 
 const showCreateModal = ref(false)
 const showDictionary = ref(false)
 const showNewFolderModal = ref(false)
 const showMoveModal = ref(false)
+const showMobileSidebar = ref(false)
 const movingArticleId = ref<string | null>(null)
 const newTitle = ref('')
 const newContent = ref('')
@@ -130,14 +129,10 @@ function handleMoveToFolder(folderId: string | null) {
   }
 }
 
-function handleRemoveFromFolder(id: string, event: Event) {
-  event.stopPropagation()
-  moveArticle(id, null)
-}
-
 function switchView(view: 'all' | 'favorites' | 'trash' | 'folder', folderId?: string) {
   currentView.value = view
   currentFolderId.value = folderId || null
+  showMobileSidebar.value = false
 }
 
 function handleImport(event: Event) {
@@ -199,10 +194,16 @@ function handleExportArticle(id: string, event: Event) {
       <Logo />
     </div>
 
-    <div class="sidebar">
+    <div class="sidebar" :class="{ 'mobile-open': showMobileSidebar }">
       <div class="sidebar-logo">
         <Logo />
       </div>
+      <button class="mobile-sidebar-close" @click="showMobileSidebar = false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
       <div class="sidebar-section">
         <button class="nav-item" :class="{ active: currentView === 'all' }" @click="switchView('all')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -410,6 +411,45 @@ function handleExportArticle(id: string, event: Event) {
       </svg>
     </button>
 
+    <div class="mobile-nav">
+      <button class="mobile-nav-item" :class="{ active: currentView === 'all' }" @click="switchView('all')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14,2H6A2,2,0,0,0,4,4V20a2,2,0,0,0,2,2H18a2,2,0,0,0,2-2V8Z"></path>
+          <polyline points="14,2 14,8 20,8"></polyline>
+        </svg>
+        <span>文章</span>
+      </button>
+      <button class="mobile-nav-item" :class="{ active: currentView === 'favorites' }" @click="switchView('favorites')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26 12,2"></polygon>
+        </svg>
+        <span>收藏</span>
+      </button>
+      <button class="mobile-nav-item create" @click="showCreateModal = true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+      </button>
+      <button class="mobile-nav-item" @click="showMobileSidebar = true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22,19a2,2,0,0,1-2,2H4a2,2,0,0,1-2-2V5A2,2,0,0,1,4,3H9l2,3h9a2,2,0,0,1,2,2Z"></path>
+        </svg>
+        <span>文件夹</span>
+      </button>
+      <button class="mobile-nav-item" :class="{ active: currentView === 'trash' }" @click="switchView('trash')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="3,6 5,6 21,6"></polyline>
+          <path d="M19,6v14a2,2,0,0,1-2,2H7a2,2,0,0,1-2-2V6m3,0V4a2,2,0,0,1,2-2h4a2,2,0,0,1,2,2v2"></path>
+        </svg>
+        <span>回收站</span>
+      </button>
+    </div>
+
+    <Transition name="fade">
+      <div v-if="showMobileSidebar" class="mobile-sidebar-overlay" @click="showMobileSidebar = false"></div>
+    </Transition>
+
     <Teleport to="body">
       <Transition name="modal">
         <div v-if="showCreateModal" class="modal-overlay" @click.self="showCreateModal = false">
@@ -546,6 +586,18 @@ function handleExportArticle(id: string, event: Event) {
 }
 
 .mobile-logo {
+  display: none;
+}
+
+.mobile-nav {
+  display: none;
+}
+
+.mobile-sidebar-overlay {
+  display: none;
+}
+
+.mobile-sidebar-close {
   display: none;
 }
 
@@ -1091,6 +1143,51 @@ function handleExportArticle(id: string, event: Event) {
 @media (max-width: 768px) {
   .sidebar {
     display: none;
+    position: fixed;
+    z-index: 200;
+    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.1);
+  }
+
+  .sidebar.mobile-open {
+    display: block;
+    transform: translateX(0);
+  }
+
+  .mobile-sidebar-close {
+    display: none;
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    width: 28px;
+    height: 28px;
+    align-items: center;
+    justify-content: center;
+    background: #f5f5f5;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    color: #666;
+  }
+
+  .mobile-sidebar-close svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .sidebar.mobile-open .mobile-sidebar-close {
+    display: flex;
+  }
+
+  .sidebar.mobile-open .sidebar-logo {
+    left: 1rem;
+  }
+
+  .mobile-sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 150;
   }
 
   .mobile-logo {
@@ -1112,19 +1209,77 @@ function handleExportArticle(id: string, event: Event) {
   }
 
   .fab {
-    right: 1rem;
-    bottom: 1rem;
-    width: 40px;
-    height: 40px;
+    display: none;
   }
 
-  .fab.dict {
-    right: 4.5rem;
+  .mobile-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: white;
+    border-top: 1px solid #eee;
+    padding: 0.5rem 0.25rem;
+    padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+    z-index: 100;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.05);
   }
 
-  .fab svg {
-    width: 18px;
-    height: 18px;
+  .mobile-nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.125rem;
+    padding: 0.375rem 0.5rem;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: #999;
+    font-size: 0.625rem;
+    transition: all 0.15s;
   }
+
+  .mobile-nav-item svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .mobile-nav-item.active {
+    color: #2dd4bf;
+  }
+
+  .mobile-nav-item.create {
+    background: #2dd4bf;
+    color: white;
+    border-radius: 50%;
+    width: 44px;
+    height: 44px;
+    margin-top: -22px;
+    flex: none;
+    margin-left: auto;
+    margin-right: auto;
+    box-shadow: 0 2px 8px rgba(45, 212, 191, 0.3);
+  }
+
+  .mobile-nav-item.create svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .mobile-nav-item.create:hover {
+    background: #14b8a6;
+  }
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>

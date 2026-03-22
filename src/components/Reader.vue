@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import type { Article, Annotation, TextFormat } from '@/types'
+import type { Annotation, TextFormat } from '@/types'
 import { useArticles } from '@/composables/useArticles'
 import { useSettings } from '@/composables/useSettings'
 import Dictionary from '@/components/Dictionary.vue'
@@ -42,6 +42,8 @@ const contextMenu = ref({
 const localFonts = ref<string[]>([])
 const showFontPicker = ref(false)
 const annotationError = ref('')
+const longPressTimer = ref<number | null>(null)
+const touchStartPos = ref({ x: 0, y: 0 })
 
 const presetFonts = [
   'serif',
@@ -70,22 +72,99 @@ onMounted(async () => {
 
   document.addEventListener('contextmenu', handleContextMenu)
   document.addEventListener('click', hideContextMenu)
+  
+  const content = readerContent.value
+  if (content) {
+    content.addEventListener('touchstart', handleTouchStart, { passive: true })
+    content.addEventListener('touchend', handleTouchEnd)
+    content.addEventListener('touchmove', handleTouchMove, { passive: true })
+  }
 })
 
 onUnmounted(() => {
   document.removeEventListener('contextmenu', handleContextMenu)
   document.removeEventListener('click', hideContextMenu)
+  
+  const content = readerContent.value
+  if (content) {
+    content.removeEventListener('touchstart', handleTouchStart)
+    content.removeEventListener('touchend', handleTouchEnd)
+    content.removeEventListener('touchmove', handleTouchMove)
+  }
 })
+
+function handleTouchStart(e: TouchEvent) {
+  if (isEditing.value) return
+  
+  const touch = e.touches[0]
+  touchStartPos.value = { x: touch.clientX, y: touch.clientY }
+  
+  longPressTimer.value = window.setTimeout(() => {
+    const selection = window.getSelection()
+    if (selection && !selection.isCollapsed) {
+      handleTextSelection()
+      if (selectedText.value) {
+        let x = touchStartPos.value.x
+        let y = touchStartPos.value.y
+        
+        const menuWidth = 140
+        const menuHeight = 180
+        const padding = 10
+        
+        if (x + menuWidth + padding > window.innerWidth) {
+          x = window.innerWidth - menuWidth - padding
+        }
+        if (y + menuHeight + padding > window.innerHeight) {
+          y = window.innerHeight - menuHeight - padding
+        }
+        
+        contextMenu.value = {
+          show: true,
+          x: Math.max(padding, x),
+          y: Math.max(padding, y)
+        }
+      }
+    }
+  }, 500)
+}
+
+function handleTouchEnd() {
+  if (longPressTimer.value) {
+    clearTimeout(longPressTimer.value)
+    longPressTimer.value = null
+  }
+}
+
+function handleTouchMove() {
+  if (longPressTimer.value) {
+    clearTimeout(longPressTimer.value)
+    longPressTimer.value = null
+  }
+}
 
 function handleContextMenu(e: MouseEvent) {
   if (readerContent.value?.contains(e.target as Node) && !isEditing.value) {
     e.preventDefault()
     handleTextSelection()
     if (selectedText.value) {
+      let x = e.clientX
+      let y = e.clientY
+      
+      const menuWidth = 140
+      const menuHeight = 180
+      const padding = 10
+      
+      if (x + menuWidth + padding > window.innerWidth) {
+        x = window.innerWidth - menuWidth - padding
+      }
+      if (y + menuHeight + padding > window.innerHeight) {
+        y = window.innerHeight - menuHeight - padding
+      }
+      
       contextMenu.value = {
         show: true,
-        x: e.clientX,
-        y: e.clientY
+        x: Math.max(padding, x),
+        y: Math.max(padding, y)
       }
     }
   }
@@ -1460,21 +1539,114 @@ function handlePrint() {
 }
 
 @media (max-width: 768px) {
+  .header {
+    padding: 0.625rem 0.75rem;
+    padding-top: calc(0.625rem + env(safe-area-inset-top));
+  }
+
+  .back-btn {
+    width: 28px;
+    height: 28px;
+  }
+
+  .back-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .title {
+    font-size: 0.875rem;
+  }
+
+  .actions {
+    gap: 0.25rem;
+  }
+
+  .btn-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .btn-icon svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .btn-primary {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+  }
+
   .body.with-panel .content-wrapper {
     margin-right: 0;
+    margin-bottom: 0;
   }
 
   .panel {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
     width: 100%;
-    max-width: 280px;
+    max-width: none;
+    max-height: 70vh;
+    border-left: none;
+    border-top: 1px solid #eee;
+    border-radius: 16px 16px 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    transform: translateY(100%);
+    transition: transform 0.3s ease;
+  }
+
+  .panel-enter-from,
+  .panel-leave-to {
+    transform: translateY(100%);
+  }
+
+  .panel-enter-to,
+  .panel-leave-from {
+    transform: translateY(0);
   }
 
   .content-wrapper {
-    padding: 1rem;
+    padding: 0.75rem;
+    padding-bottom: 1rem;
+  }
+
+  .article-container {
+    border-radius: 8px;
   }
 
   .content {
-    padding: 1rem 1.25rem;
+    padding: 1rem;
+    font-size: 16px;
+  }
+
+  .context-menu {
+    max-width: calc(100vw - 2rem);
+    left: 1rem !important;
+    right: 1rem !important;
+  }
+
+  .ann-controls {
+    flex-wrap: wrap;
+  }
+
+  .ann-mode-btn {
+    min-width: calc(25% - 0.2rem);
+  }
+
+  .new-ann {
+    padding: 0.5rem;
+  }
+
+  .dict-suggestions {
+    max-height: 100px;
+  }
+
+  .dict-suggestion-item {
+    padding: 0.25rem 0.375rem;
   }
 }
 
