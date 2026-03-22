@@ -40,3 +40,23 @@ export interface ReaderSettings {
   fontFamily: string
   annotationFontSize: number
 }
+
+export interface User {
+  id: string
+  username: string
+  createdAt?: number
+}
+
+export interface SharedArticle {
+  id: string
+  title: string
+  content: string
+  annotations: Annotation[]
+  author: string
+  authorId: string
+  preview?: string
+  annotationCount?: number
+  likes: number
+  downloads: number
+  createdAt: number
+}

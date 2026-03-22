@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import type { Annotation, TextFormat } from '@/types'
+import type { Annotation, TextFormat, SharedArticle } from '@/types'
 import { useArticles } from '@/composables/useArticles'
 import { useSettings } from '@/composables/useSettings'
 import Dictionary from '@/components/Dictionary.vue'
 
 const props = defineProps<{
   articleId: string
+  sharedArticle?: SharedArticle | null
 }>()
 
 const emit = defineEmits<{
@@ -16,7 +17,26 @@ const emit = defineEmits<{
 const { getArticle, addAnnotation, updateAnnotation, deleteAnnotation, checkAnnotationExists, addFormat, removeFormat, updateArticle, findDictionaryEntries } = useArticles()
 const { settings, updateSettings, resetSettings } = useSettings()
 
-const article = computed(() => getArticle(props.articleId))
+const article = computed(() => {
+  if (props.sharedArticle) {
+    return {
+      id: props.sharedArticle.id,
+      title: props.sharedArticle.title,
+      content: props.sharedArticle.content,
+      annotations: props.sharedArticle.annotations || [],
+      formats: [],
+      folderId: null,
+      isFavorite: false,
+      isDeleted: false,
+      deletedAt: null,
+      createdAt: props.sharedArticle.createdAt,
+      updatedAt: props.sharedArticle.createdAt
+    }
+  }
+  return getArticle(props.articleId)
+})
+
+const isSharedArticle = computed(() => !!props.sharedArticle)
 
 const showSettings = ref(false)
 const showAnnotations = ref(true)
@@ -468,10 +488,13 @@ function handlePrint() {
       </button>
       <h1 class="title">{{ article.title }}</h1>
       <div class="actions">
-        <button v-if="isEditing" class="btn-text" @click="cancelEditing">取消</button>
-        <button class="btn-primary" @click="isEditing ? saveContent() : startEditing()">
-          {{ isEditing ? '保存' : '编辑' }}
-        </button>
+        <template v-if="!isSharedArticle">
+          <button v-if="isEditing" class="btn-text" @click="cancelEditing">取消</button>
+          <button class="btn-primary" @click="isEditing ? saveContent() : startEditing()">
+            {{ isEditing ? '保存' : '编辑' }}
+          </button>
+        </template>
+        <span v-if="isSharedArticle" class="shared-badge">来自广场</span>
         <button v-if="!isEditing" class="btn-icon" @click="handlePrint" title="打印">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="6,9 6,2 18,2 18,9"></polyline>
@@ -667,7 +690,7 @@ function handlePrint() {
             </button>
           </div>
           <div class="panel-body">
-            <div v-if="selectedText" class="new-ann">
+            <div v-if="selectedText && !isSharedArticle" class="new-ann">
               <div class="new-ann-header">
                 <span class="new-ann-label">选中</span>
                 <span class="new-ann-text">"{{ selectedText }}"</span>
@@ -709,7 +732,7 @@ function handlePrint() {
                 <div v-else>
                   <div class="ann-header">
                     <span class="ann-text">"{{ ann.text }}"</span>
-                    <div class="ann-actions">
+                    <div v-if="!isSharedArticle" class="ann-actions">
                       <button class="btn-icon sm" @click="startEditAnnotation(ann)">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                           <path d="M11,4H4A2,2,0,0,0,2,6V20a2,2,0,0,0,2,2H18a2,2,0,0,0,2-2V13"></path>
@@ -877,6 +900,15 @@ function handlePrint() {
 
 .btn-text:hover {
   color: #333;
+}
+
+.shared-badge {
+  padding: 0.25rem 0.5rem;
+  background: #f0fdfa;
+  color: #14b8a6;
+  font-size: 0.6875rem;
+  border-radius: 4px;
+  margin-right: 0.5rem;
 }
 
 .btn-icon {

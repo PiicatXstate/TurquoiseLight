@@ -1,13 +1,19 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useArticles } from '@/composables/useArticles'
+import { useAuth } from '@/composables/useAuth'
 import Logo from '@/components/Logo.vue'
 import Dictionary from '@/components/Dictionary.vue'
 import { generateId, saveArticles } from '@/utils/storage'
 
 const emit = defineEmits<{
   (e: 'openArticle', id: string): void
+  (e: 'openSquare'): void
+  (e: 'openLogin'): void
+  (e: 'logout'): void
 }>()
+
+const { user, isLoggedIn } = useAuth()
 
 const {
   articles,
@@ -204,6 +210,35 @@ function handleExportArticle(id: string, event: Event) {
           <line x1="6" y1="6" x2="18" y2="18"></line>
         </svg>
       </button>
+      
+      <div class="sidebar-section user-section">
+        <div v-if="isLoggedIn && user" class="user-info">
+          <div class="user-avatar">{{ user.username.charAt(0).toUpperCase() }}</div>
+          <div class="user-details">
+            <span class="user-name">{{ user.username }}</span>
+            <button class="logout-btn" @click="emit('logout')">退出登录</button>
+          </div>
+        </div>
+        <button v-else class="nav-item login-btn" @click="emit('openLogin')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20,21v-2a4,4,0,0,0-4-4H8a4,4,0,0,0-4,4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+          </svg>
+          <span>登录 / 注册</span>
+        </button>
+      </div>
+      
+      <div class="sidebar-section">
+        <button class="nav-item square-btn" @click="emit('openSquare')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="2" y1="12" x2="22" y2="12"></line>
+            <path d="M12,2a15.3,15.3,0,0,1,4,10,15.3,15.3,0,0,1-4,10,15.3,15.3,0,0,1-4-10A15.3,15.3,0,0,1,12,2Z"></path>
+          </svg>
+          <span>文章广场</span>
+        </button>
+      </div>
+
       <div class="sidebar-section">
         <button class="nav-item" :class="{ active: currentView === 'all' }" @click="switchView('all')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -603,6 +638,68 @@ function handleExportArticle(id: string, event: Event) {
 
 .sidebar-section {
   margin-bottom: 1.5rem;
+}
+
+.user-section {
+  padding: 0.75rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.user-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #2dd4bf;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.user-details {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.user-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #1a1a1a;
+}
+
+.logout-btn {
+  background: transparent;
+  border: none;
+  color: #999;
+  font-size: 0.6875rem;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+}
+
+.logout-btn:hover {
+  color: #dc2626;
+}
+
+.login-btn {
+  background: #f0fdfa !important;
+  color: #2dd4bf !important;
+}
+
+.square-btn {
+  background: linear-gradient(135deg, #f0fdfa 0%, #ecfdf5 100%) !important;
+  color: #14b8a6 !important;
 }
 
 .import-label {
