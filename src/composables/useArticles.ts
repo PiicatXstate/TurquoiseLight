@@ -185,6 +185,28 @@ export function useArticles() {
     folders.value = loadFolders()
   }
 
+  function findDictionaryEntries(text: string): { content: string; articleTitle: string; articleId: string }[] {
+    const results: { content: string; articleTitle: string; articleId: string }[] = []
+    const normalizedText = text.trim().toLowerCase()
+    
+    for (const article of articles.value) {
+      for (const ann of article.annotations) {
+        if (ann.text.trim().toLowerCase() === normalizedText) {
+          const exists = results.some(r => r.content === ann.content)
+          if (!exists) {
+            results.push({
+              content: ann.content,
+              articleTitle: article.title,
+              articleId: article.id
+            })
+          }
+        }
+      }
+    }
+    
+    return results
+  }
+
   return {
     articles,
     folders,
@@ -210,6 +232,7 @@ export function useArticles() {
     updateFolder,
     deleteFolder,
     reloadArticles,
-    reloadFolders
+    reloadFolders,
+    findDictionaryEntries
   }
 }

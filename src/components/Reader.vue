@@ -13,7 +13,7 @@ const emit = defineEmits<{
   (e: 'back'): void
 }>()
 
-const { getArticle, addAnnotation, updateAnnotation, deleteAnnotation, checkAnnotationExists, addFormat, removeFormat, updateArticle } = useArticles()
+const { getArticle, addAnnotation, updateAnnotation, deleteAnnotation, checkAnnotationExists, addFormat, removeFormat, updateArticle, findDictionaryEntries } = useArticles()
 const { settings, updateSettings, resetSettings } = useSettings()
 
 const article = computed(() => getArticle(props.articleId))
@@ -50,6 +50,11 @@ const presetFonts = [
   'SourceHanSerifCN, serif',
   'sans-serif'
 ]
+
+const dictionaryEntries = computed(() => {
+  if (!selectedText.value.trim()) return []
+  return findDictionaryEntries(selectedText.value)
+})
 
 onMounted(async () => {
   try {
@@ -588,6 +593,22 @@ function handlePrint() {
                 <span class="new-ann-label">选中</span>
                 <span class="new-ann-text">"{{ selectedText }}"</span>
               </div>
+              
+              <div v-if="dictionaryEntries.length > 0" class="dict-suggestions">
+                <div class="dict-suggestions-title">已有释义 (点击选择)</div>
+                <div class="dict-suggestions-list">
+                  <button 
+                    v-for="(entry, idx) in dictionaryEntries" 
+                    :key="idx"
+                    class="dict-suggestion-item"
+                    @click="annotationContent = entry.content"
+                  >
+                    <span class="dict-suggestion-content">{{ entry.content }}</span>
+                    <span class="dict-suggestion-source">——《{{ entry.articleTitle }}》</span>
+                  </button>
+                </div>
+              </div>
+              
               <textarea v-model="annotationContent" placeholder="注释内容..." rows="2"></textarea>
               <div v-if="annotationError" class="error">{{ annotationError }}</div>
               <div class="new-ann-actions">
@@ -1190,6 +1211,60 @@ function handlePrint() {
   font-size: 0.75rem;
   color: #333;
   font-weight: 500;
+  margin-top: 0.125rem;
+}
+
+.dict-suggestions {
+  margin-bottom: 0.5rem;
+  background: white;
+  border-radius: 4px;
+  padding: 0.5rem;
+}
+
+.dict-suggestions-title {
+  font-size: 0.625rem;
+  color: #2dd4bf;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.375rem;
+}
+
+.dict-suggestions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.dict-suggestion-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 0.375rem 0.5rem;
+  background: #f8f9fa;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: all 0.15s;
+}
+
+.dict-suggestion-item:hover {
+  background: #f0fdfa;
+  border-color: #2dd4bf;
+}
+
+.dict-suggestion-content {
+  font-size: 0.75rem;
+  color: #333;
+  line-height: 1.4;
+}
+
+.dict-suggestion-source {
+  font-size: 0.625rem;
+  color: #999;
   margin-top: 0.125rem;
 }
 
