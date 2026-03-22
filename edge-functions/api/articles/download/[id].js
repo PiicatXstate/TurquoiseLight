@@ -1,6 +1,6 @@
 import { getConnection } from '../../../db.js';
 
-export async function onRequestGet(context) {
+export default async function onRequestGet(context) {
   const { request, env, params } = context;
   let connection;
   

@@ -1,6 +1,22 @@
 import { getConnection } from '../../db.js';
 
-export async function onRequestGet(context) {
+export default async function onRequest(context) {
+  const { request, env, params } = context;
+  const method = request.method;
+  
+  if (method === 'GET') {
+    return getArticle(context);
+  } else if (method === 'DELETE') {
+    return deleteArticle(context);
+  }
+  
+  return new Response(JSON.stringify({ error: '方法不允许' }), {
+    status: 405,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+async function getArticle(context) {
   const { request, env, params } = context;
   let connection;
   
@@ -59,7 +75,7 @@ export async function onRequestGet(context) {
   }
 }
 
-export async function onRequestDelete(context) {
+async function deleteArticle(context) {
   const { request, env, params } = context;
   let connection;
   

@@ -1,6 +1,22 @@
 import { getConnection, generateId } from '../../../db.js';
 
-export async function onRequestPost(context) {
+export default async function onRequest(context) {
+  const { request, env, params } = context;
+  const method = request.method;
+  
+  if (method === 'POST') {
+    return toggleLike(context);
+  } else if (method === 'GET') {
+    return checkLiked(context);
+  }
+  
+  return new Response(JSON.stringify({ error: '方法不允许' }), {
+    status: 405,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+async function toggleLike(context) {
   const { request, env, params } = context;
   let connection;
   
@@ -97,7 +113,7 @@ export async function onRequestPost(context) {
   }
 }
 
-export async function onRequestGet(context) {
+async function checkLiked(context) {
   const { request, env, params } = context;
   let connection;
   

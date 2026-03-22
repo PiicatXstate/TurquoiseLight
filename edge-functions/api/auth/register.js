@@ -1,6 +1,6 @@
 import { getConnection, generateId, hashPassword, generateToken } from '../../db.js';
 
-export async function onRequestPost(context) {
+export default async function onRequestPost(context) {
   const { request, env } = context;
   let connection;
   

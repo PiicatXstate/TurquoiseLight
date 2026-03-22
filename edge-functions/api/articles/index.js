@@ -1,6 +1,22 @@
 import { getConnection, generateId } from '../../db.js';
 
-export async function onRequestGet(context) {
+export default async function onRequest(context) {
+  const { request, env } = context;
+  const method = request.method;
+  
+  if (method === 'GET') {
+    return getArticles(context);
+  } else if (method === 'POST') {
+    return createArticle(context);
+  }
+  
+  return new Response(JSON.stringify({ error: '方法不允许' }), {
+    status: 405,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+async function getArticles(context) {
   const { request, env } = context;
   let connection;
   
@@ -63,7 +79,7 @@ export async function onRequestGet(context) {
   }
 }
 
-export async function onRequestPost(context) {
+async function createArticle(context) {
   const { request, env } = context;
   let connection;
   
