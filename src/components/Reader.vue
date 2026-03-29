@@ -1,8 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import type { Annotation, TextFormat, SharedArticle } from '@/types'
+import { ref, computed, watch } from 'vue'
+import type { Annotation, SharedArticle } from '@/types'
 import { useArticles } from '@/composables/useArticles'
 import { useSettings } from '@/composables/useSettings'
+import { useChatSessions } from '@/composables/useChatSessions'
+import { useAIChat } from '@/composables/useAIChat'
+import { useAnnotations } from '@/composables/useAnnotations'
+import { useDictionary } from '@/composables/useDictionary'
+import { useReader } from '@/composables/useReader'
 
 const props = defineProps<{
   articleId: string
@@ -37,535 +42,129 @@ const article = computed(() => {
 
 const isSharedArticle = computed(() => !!props.sharedArticle)
 
-const showSettings = ref(false)
-const showAnnotations = ref(true)
-const showDictionary = ref(false)
-const selectedText = ref('')
-const selectedStartIndex = ref(0)
-const selectedEndIndex = ref(0)
-const annotationContent = ref('')
-const editingAnnotationId = ref<string | null>(null)
-const editingAnnotationContent = ref('')
-const expandedAnnotations = ref<Set<string>>(new Set())
-const readerContent = ref<HTMLElement | null>(null)
-const isEditing = ref(false)
-const editContent = ref('')
-const annotationLockMode = ref<'normal' | 'locked' | 'all-expanded' | 'all-collapsed'>('normal')
+// 初始化composables
+const chatSession = useChatSessions(props.articleId)
+const aiChat = useAIChat()
+const annotations = useAnnotations()
+const dictionary = useDictionary(articles)
+const reader = useReader(article, checkAnnotationExists, addFormat, removeFormat)
 
-const contextMenu = ref({
-  show: false,
-  x: 0,
-  y: 0
-})
+// 从各个composable中解构需要的状态和方法
+const {
+  chatSessions,
+  currentSessionId,
+  showSessionManager,
+  editingSessionId,
+  editingSessionTitle,
+  getCurrentSession,
+  createChatSession,
+  renameChatSession,
+  deleteChatSession,
+  exportChatSession
+} = chatSession
 
-const localFonts = ref<string[]>([])
-const showFontPicker = ref(false)
-const annotationError = ref('')
-const longPressTimer = ref<number | null>(null)
-const touchStartPos = ref({ x: 0, y: 0 })
-const showAIChat = ref(false)
-const selectedAnnotationText = ref('')
-const sidebarWidth = ref(280) // 侧边栏默认宽度
+const {
+  messages,
+  expandedMessages,
+  inputMessage,
+  loading,
+  error,
+  streaming,
+  streamContent,
+  streamThink,
+  streamHasThink,
+  aiContext,
+  selectedTextPosition,
+  isEmptyInput,
+  sendMessage,
+  handleKeyDown,
+  clearMessages
+} = aiChat
 
-// AI上下文相关状态
-const aiContext = ref('')
-const selectedTextPosition = ref({ paragraph: 0, line: 0, position: 0 })
+const {
+  showAIAnnotationDialog,
+  aiAnnotationLoading,
+  aiAnnotationError,
+  aiAnnotationResult,
+  aiAnnotationSelectedText,
+  annotationContent,
+  editingAnnotationId,
+  editingAnnotationContent,
+  annotationError,
+  expandedAnnotations,
+  annotationLockMode,
+  handleAISelectionAnnotation,
+  confirmAddAIAnnotation,
+  cancelAIAnnotation,
+  toggleAnnotation,
+  setAnnotationMode,
+  startEditAnnotation,
+  saveEditAnnotation,
+  cancelEditAnnotation,
+  getAnnotationDepth
+} = annotations
 
-// AI注释相关状态
-const showAIAnnotationDialog = ref(false)
-const aiAnnotationLoading = ref(false)
-const aiAnnotationError = ref('')
-const aiAnnotationResult = ref('')
-const aiAnnotationSelectedText = ref('')
+const {
+  dictionaryQuery,
+  dictionarySearchResults,
+  dictionaryAllAnnotations,
+  dictionaryStats
+} = dictionary
 
-// 聊天记录管理系统
-interface ChatMessage {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  think: string
-  timestamp: number
-}
+const {
+  showSettings,
+  showAnnotations,
+  showDictionary,
+  showAIChat,
+  selectedText,
+  selectedStartIndex,
+  selectedEndIndex,
+  readerContent,
+  isEditing,
+  editContent,
+  selectedAnnotationText,
+  sidebarWidth,
+  contextMenu,
+  localFonts,
+  showFontPicker,
+  presetFonts,
+  handleTouchStart,
+  handleTouchEnd,
+  handleTouchMove,
+  handleContextMenu,
+  hideContextMenu,
+  handleTextSelection,
+  addBoldFormat,
+  addUnderlineFormat,
+  openAnnotationPanel,
+  clearSelection,
+  startEditing,
+  saveContent,
+  cancelEditing,
+  selectFont,
+  getFormattedContent,
+  handleContentClick,
+  calculateTextPosition,
+  handlePrint,
+  startResize,
+  resize,
+  stopResize
+} = reader
 
-interface ChatSession {
-  id: string
-  title: string
-  articleId: string
-  createdAt: number
-  updatedAt: number
-  messages: ChatMessage[]
-  isDefault: boolean
-}
-
-// 聊天会话管理相关状态
-const chatSessions = ref<ChatSession[]>([])
-const currentSessionId = ref<string>('')
-const showSessionManager = ref(false)
-const editingSessionId = ref<string | null>(null)
-const editingSessionTitle = ref('')
-
-// 词典功能状态
-const dictionaryQuery = ref('')
-const dictionarySearchResults = computed(() => {
-  if (!dictionaryQuery.value.trim()) return []
-  
-  const q = dictionaryQuery.value.trim().toLowerCase()
-  const results: Map<string, { text: string; meanings: { content: string; articleTitle: string; articleId: string }[] }> = new Map()
-  
-  for (const article of articles.value) {
-    for (const ann of article.annotations) {
-      if (ann.text.toLowerCase().includes(q) || ann.content.toLowerCase().includes(q)) {
-        if (!results.has(ann.text)) {
-          results.set(ann.text, { text: ann.text, meanings: [] })
-        }
-        const existing = results.get(ann.text)!
-        const isDuplicate = existing.meanings.some(m => m.content === ann.content)
-        if (!isDuplicate) {
-          existing.meanings.push({
-            content: ann.content,
-            articleTitle: article.title,
-            articleId: article.id
-          })
-        }
-      }
-    }
-  }
-  
-  return Array.from(results.values())
-})
-
-const dictionaryAllAnnotations = computed(() => {
-  const grouped: Map<string, { text: string; meanings: { content: string; articleTitle: string; articleId: string }[] }> = new Map()
-  
-  for (const article of articles.value) {
-    for (const ann of article.annotations) {
-      if (!grouped.has(ann.text)) {
-        grouped.set(ann.text, { text: ann.text, meanings: [] })
-      }
-      const existing = grouped.get(ann.text)!
-      const isDuplicate = existing.meanings.some(m => m.content === ann.content)
-      if (!isDuplicate) {
-        existing.meanings.push({
-          content: ann.content,
-          articleTitle: article.title,
-          articleId: article.id
-        })
-      }
-    }
-  }
-  
-  return Array.from(grouped.values()).sort((a, b) => a.text.localeCompare(b.text, 'zh-CN'))
-})
-
-const dictionaryStats = computed(() => {
-  let totalAnnotations = 0
-  let uniqueTexts = 0
-  const allTexts = new Set<string>()
-  
-  for (const article of articles.value) {
-    totalAnnotations += article.annotations.length
-    for (const ann of article.annotations) {
-      allTexts.add(ann.text)
-    }
-  }
-  uniqueTexts = allTexts.size
-  
-  return { totalAnnotations, uniqueTexts, articleCount: articles.value.length }
-})
-
-// AI Chat state
-const messages = ref([
-  {
-    role: 'assistant',
-    content: '你好！我是文言文助手，有什么可以帮你的吗？',
-    think: ''
-  }
-])
-
-// 跟踪思考部分的展开状态
-const expandedMessages = ref<Set<number>>(new Set())
-
-// 聊天会话管理功能
-function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).substr(2)
-}
-
-function loadChatSessions() {
-  try {
-    const stored = localStorage.getItem(`chat_sessions_${props.articleId}`)
-    if (stored) {
-      chatSessions.value = JSON.parse(stored)
-      // 找到默认会话或第一个会话
-      const defaultSession = chatSessions.value.find(s => s.isDefault)
-      if (defaultSession) {
-        currentSessionId.value = defaultSession.id
-      } else if (chatSessions.value.length > 0) {
-        currentSessionId.value = chatSessions.value[0].id
-      }
-    } else {
-      // 创建默认会话
-      const defaultSession: ChatSession = {
-        id: generateId(),
-        title: '默认会话',
-        articleId: props.articleId,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        messages: [
-          {
-            id: generateId(),
-            role: 'assistant',
-            content: '你好！我是文言文助手，有什么可以帮你的吗？',
-            think: '',
-            timestamp: Date.now()
-          }
-        ],
-        isDefault: true
-      }
-      chatSessions.value = [defaultSession]
-      currentSessionId.value = defaultSession.id
-      saveChatSessions()
-    }
-  } catch (e) {
-    console.error('Failed to load chat sessions:', e)
-  }
-}
-
-function saveChatSessions() {
-  try {
-    localStorage.setItem(`chat_sessions_${props.articleId}`, JSON.stringify(chatSessions.value))
-  } catch (e) {
-    console.error('Failed to save chat sessions:', e)
-  }
-}
-
-function getCurrentSession(): ChatSession | undefined {
-  return chatSessions.value.find(s => s.id === currentSessionId.value)
-}
-
-function createChatSession(title: string) {
-  const newSession: ChatSession = {
-    id: generateId(),
-    title,
-    articleId: props.articleId,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    messages: [
-      {
-        id: generateId(),
-        role: 'assistant',
-        content: '你好！我是文言文助手，有什么可以帮你的吗？',
-        think: '',
-        timestamp: Date.now()
-      }
-    ],
-    isDefault: false
-  }
-  chatSessions.value.push(newSession)
-  currentSessionId.value = newSession.id
-  saveChatSessions()
-  return newSession
-}
-
-function renameChatSession(id: string, newTitle: string) {
-  const session = chatSessions.value.find(s => s.id === id)
-  if (session) {
-    session.title = newTitle
-    session.updatedAt = Date.now()
-    saveChatSessions()
-  }
-}
-
-function deleteChatSession(id: string) {
-  const index = chatSessions.value.findIndex(s => s.id === id)
-  if (index !== -1) {
-    // 不能删除默认会话
-    if (chatSessions.value[index].isDefault) {
-      return
-    }
-    chatSessions.value.splice(index, 1)
-    if (currentSessionId.value === id) {
-      // 切换到另一个会话
-      if (chatSessions.value.length > 0) {
-        currentSessionId.value = chatSessions.value[0].id
-      } else {
-        // 创建一个新的默认会话
-        const defaultSession: ChatSession = {
-          id: generateId(),
-          title: '默认会话',
-          articleId: props.articleId,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-          messages: [
-            {
-              id: generateId(),
-              role: 'assistant',
-              content: '你好！我是文言文助手，有什么可以帮你的吗？',
-              think: '',
-              timestamp: Date.now()
-            }
-          ],
-          isDefault: true
-        }
-        chatSessions.value = [defaultSession]
-        currentSessionId.value = defaultSession.id
-      }
-    }
-    saveChatSessions()
-  }
-}
-
-function addMessageToSession(sessionId: string, message: Omit<ChatMessage, 'id' | 'timestamp'>) {
-  const session = chatSessions.value.find(s => s.id === sessionId)
-  if (session) {
-    const newMessage: ChatMessage = {
-      ...message,
-      id: generateId(),
-      timestamp: Date.now()
-    }
-    session.messages.push(newMessage)
-    session.updatedAt = Date.now()
-    saveChatSessions()
-    
-    // 当添加消息的是当前会话时，自动滚动到底部
-    if (sessionId === currentSessionId.value) {
-      setTimeout(() => {
-        const messagesContainer = document.querySelector('.messages')
-        if (messagesContainer) {
-          messagesContainer.scrollTop = messagesContainer.scrollHeight
-        }
-      }, 50)
-    }
-  }
-}
-
-const inputMessage = ref('')
-const loading = ref(false)
-const error = ref('')
-const streaming = ref(false)
-const streamContent = ref('')
-const streamThink = ref('')
-const streamHasThink = ref(false)
-
-const isEmptyInput = computed(() => !inputMessage.value.trim())
-
+// 监听选中的注释文本变化
 watch(() => selectedAnnotationText.value, (newText) => {
   if (newText) {
     inputMessage.value = `解释一下"${newText}"的意思`
   }
 }, { immediate: true })
 
-const presetFonts = [
-  'serif',
-  'KaiTi, serif',
-  'FangSong, serif',
-  'SourceHanSerifCN, serif',
-  'sans-serif'
-]
-
+// 计算词典条目
 const dictionaryEntries = computed(() => {
   if (!selectedText.value.trim()) return []
   return findDictionaryEntries(selectedText.value)
 })
 
-onMounted(async () => {
-  try {
-    const fonts = await (window as any).queryLocalFonts?.()
-    if (fonts) {
-      const fontSet = new Set<string>()
-      fonts.forEach((f: any) => fontSet.add(f.family))
-      localFonts.value = Array.from(fontSet).sort()
-    }
-  } catch (e) {
-    console.log('Local fonts not supported')
-  }
-
-  // 加载聊天会话
-  loadChatSessions()
-
-  document.addEventListener('contextmenu', handleContextMenu)
-  document.addEventListener('click', (e) => {
-    // 检查点击目标是否在菜单内
-    const menu = document.querySelector('.context-menu')
-    if (!menu || !menu.contains(e.target as Node)) {
-      hideContextMenu(e)
-    }
-  })
-  
-  // 添加侧边栏宽度调节的事件监听器
-  document.addEventListener('mousemove', resize)
-  document.addEventListener('mouseup', stopResize)
-  
-  const content = readerContent.value
-  if (content) {
-    content.addEventListener('touchstart', handleTouchStart, { passive: true })
-    content.addEventListener('touchend', handleTouchEnd)
-    content.addEventListener('touchmove', handleTouchMove, { passive: true })
-  }
-})
-
-onUnmounted(() => {
-  document.removeEventListener('contextmenu', handleContextMenu)
-  // 由于我们使用了匿名函数，这里不需要移除click事件监听器，它会在组件卸载时自动清理
-  
-  // 移除侧边栏宽度调节的事件监听器
-  document.removeEventListener('mousemove', resize)
-  document.removeEventListener('mouseup', stopResize)
-  
-  const content = readerContent.value
-  if (content) {
-    content.removeEventListener('touchstart', handleTouchStart)
-    content.removeEventListener('touchend', handleTouchEnd)
-    content.removeEventListener('touchmove', handleTouchMove)
-  }
-})
-
-function handleTouchStart(e: TouchEvent) {
-  if (isEditing.value) return
-  
-  const touch = e.touches[0]
-  touchStartPos.value = { x: touch.clientX, y: touch.clientY }
-  
-  longPressTimer.value = window.setTimeout(() => {
-    const selection = window.getSelection()
-    if (selection && !selection.isCollapsed) {
-      handleTextSelection()
-      if (selectedText.value) {
-        let x = touchStartPos.value.x
-        let y = touchStartPos.value.y
-        
-        const menuWidth = 140
-        const menuHeight = 180
-        const padding = 10
-        
-        if (x + menuWidth + padding > window.innerWidth) {
-          x = window.innerWidth - menuWidth - padding
-        }
-        if (y + menuHeight + padding > window.innerHeight) {
-          y = window.innerHeight - menuHeight - padding
-        }
-        
-        contextMenu.value = {
-          show: true,
-          x: Math.max(padding, x),
-          y: Math.max(padding, y)
-        }
-      }
-    }
-  }, 500)
-}
-
-function handleTouchEnd() {
-  if (longPressTimer.value) {
-    clearTimeout(longPressTimer.value)
-    longPressTimer.value = null
-  }
-}
-
-function handleTouchMove() {
-  if (longPressTimer.value) {
-    clearTimeout(longPressTimer.value)
-    longPressTimer.value = null
-  }
-}
-
-function handleContextMenu(e: MouseEvent) {
-  if (readerContent.value?.contains(e.target as Node) && !isEditing.value) {
-    e.preventDefault()
-    handleTextSelection()
-    if (selectedText.value) {
-      let x = e.clientX
-      let y = e.clientY
-      
-      const menuWidth = 140
-      const menuHeight = 180
-      const padding = 10
-      
-      if (x + menuWidth + padding > window.innerWidth) {
-        x = window.innerWidth - menuWidth - padding
-      }
-      if (y + menuHeight + padding > window.innerHeight) {
-        y = window.innerHeight - menuHeight - padding
-      }
-      
-      contextMenu.value = {
-        show: true,
-        x: Math.max(padding, x),
-        y: Math.max(padding, y)
-      }
-    }
-  }
-}
-
-function hideContextMenu(_e?: MouseEvent) {
-  if (contextMenu.value.show) {
-    contextMenu.value.show = false
-    // 允许点击事件继续传播到其他元素
-  }
-}
-
-function handleTextSelection() {
-  const selection = window.getSelection()
-  if (!selection || selection.isCollapsed) return
-
-  const text = selection.toString()
-  if (!text.trim()) return
-
-  const range = selection.getRangeAt(0)
-  const preCaretRange = range.cloneRange()
-  preCaretRange.selectNodeContents(readerContent.value!)
-  preCaretRange.setEnd(range.startContainer, range.startOffset)
-  const startIndex = preCaretRange.toString().length
-  const endIndex = startIndex + text.length
-
-  selectedText.value = text
-  selectedStartIndex.value = startIndex
-  selectedEndIndex.value = endIndex
-}
-
-function addBoldFormat() {
-  if (selectedText.value && article.value) {
-    const existing = article.value.formats.find(
-      f => f.type === 'bold' && f.startIndex === selectedStartIndex.value && f.endIndex === selectedEndIndex.value
-    )
-    if (existing) {
-      removeFormat(article.value.id, 'bold', selectedStartIndex.value, selectedEndIndex.value)
-    } else {
-      addFormat(article.value.id, 'bold', selectedStartIndex.value, selectedEndIndex.value)
-    }
-    clearSelection()
-  }
-  hideContextMenu()
-}
-
-function addUnderlineFormat() {
-  if (selectedText.value && article.value) {
-    const existing = article.value.formats.find(
-      f => f.type === 'underline' && f.startIndex === selectedStartIndex.value && f.endIndex === selectedEndIndex.value
-    )
-    if (existing) {
-      removeFormat(article.value.id, 'underline', selectedStartIndex.value, selectedEndIndex.value)
-    } else {
-      addFormat(article.value.id, 'underline', selectedStartIndex.value, selectedEndIndex.value)
-    }
-    clearSelection()
-  }
-  hideContextMenu()
-}
-
-function openAnnotationPanel() {
-  if (selectedText.value && article.value) {
-    if (checkAnnotationExists(article.value.id, selectedStartIndex.value, selectedEndIndex.value)) {
-      annotationError.value = '该文本已有注释'
-      setTimeout(() => { annotationError.value = '' }, 2000)
-    } else {
-      showAnnotations.value = true
-      editingAnnotationId.value = null
-      annotationContent.value = ''
-    }
-  }
-  hideContextMenu()
-}
-
+// 创建注释
 function createAnnotation() {
   if (article.value && annotationContent.value.trim()) {
     const success = addAnnotation(
@@ -586,29 +185,34 @@ function createAnnotation() {
   }
 }
 
-function startEditAnnotation(ann: Annotation) {
-  editingAnnotationId.value = ann.id
-  editingAnnotationContent.value = ann.content
-}
-
-function saveEditAnnotation() {
-  if (article.value && editingAnnotationId.value && editingAnnotationContent.value.trim()) {
-    updateAnnotation(article.value.id, editingAnnotationId.value, editingAnnotationContent.value.trim())
-    editingAnnotationId.value = null
-    editingAnnotationContent.value = ''
+// 移除注释
+function removeAnnotation(annotationId: string) {
+  if (article.value) {
+    deleteAnnotation(article.value.id, annotationId)
   }
 }
 
-function cancelEditAnnotation() {
-  editingAnnotationId.value = null
-  editingAnnotationContent.value = ''
+// 保存内容
+function saveContentWrapper() {
+  saveContent(updateArticle)
 }
 
-function askAIAboutAnnotation(text: string) {
-  selectedAnnotationText.value = text
-  showAIChat.value = true
+// 选择字体
+function selectFontWrapper(font: string) {
+  selectFont(font, updateSettings)
 }
 
+// 处理内容点击
+function handleContentClickWrapper(e: MouseEvent) {
+  handleContentClick(e, toggleAnnotation)
+}
+
+// 获取格式化内容
+function getFormattedContentWrapper() {
+  return getFormattedContent(getAnnotationDepth, expandedAnnotations, annotationLockMode)
+}
+
+// 处理AI关于选中内容的询问
 function askAIAboutSelection() {
   if (selectedText.value) {
     // 计算选中文本的位置
@@ -653,569 +257,18 @@ ${article.value.title}
 }
 
 // 处理AI选区注释
-async function handleAISelectionAnnotation() {
-  if (!selectedText.value || !article.value) return
-  
-  aiAnnotationSelectedText.value = selectedText.value
-  aiAnnotationLoading.value = true
-  aiAnnotationError.value = ''
-  aiAnnotationResult.value = ''
-  
-  try {
-    // 提取上下文信息
-    const content = article.value.content
-    const startContext = content.substring(Math.max(0, selectedStartIndex.value - 100), selectedStartIndex.value)
-    const endContext = content.substring(selectedEndIndex.value, Math.min(content.length, selectedEndIndex.value + 100))
-    
-    const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer sk-lbtjhwrjebrwhwttikwrkasfwcbsijbuojzlizzihmoksyca'
-      },
-      body: JSON.stringify({
-        model: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-7B',
-        messages: [
-          {
-            role: 'system',
-            content: `你是一个专业的文言文注释专家，擅长为文言文添加准确、简洁的注释。请分析以下选中的文本内容，结合上下文信息，生成准确、简洁的注释。注释内容要非常简短，适合直接作为注释。对于字的解释，控制在四五个字以内。对于词的解释，简单说明即可，不要长篇大论。只解释词在当前文段中的意思，不需要引申义。直接返回注释内容，不要包含其他无关信息。`
-          },
-          {
-            role: 'user',
-            content: `文章标题：${article.value.title}\n\n上下文内容：...${startContext}[${selectedText.value}]${endContext}...\n\n请为选中的文本生成注释：${selectedText.value}`
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 512,
-        stream: true
-      })
-    })
-    
-    if (!response.ok) {
-      throw new Error('API请求失败')
-    }
-    
-    const reader = response.body?.getReader()
-    if (!reader) {
-      throw new Error('No response body')
-    }
-    
-    let streamContent = ''
-    let streamThink = ''
-    let streamHasThink = false
-    
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      
-      const chunk = new TextDecoder('utf-8').decode(value)
-      const lines = chunk.split('\n').filter(line => line.trim())
-      
-      for (const line of lines) {
-        if (line === 'data: [DONE]') {
-          continue
-        }
-        
-        try {
-          const data = JSON.parse(line.replace('data: ', ''))
-          const delta = data.choices[0]?.delta
-          if (delta?.content) {
-            if (!streamHasThink) {
-              // 检查是否包含</think>分隔符
-              if (delta.content.includes('</think>')) {
-                const parts = delta.content.split('</think>')
-                streamThink += parts[0]
-                streamContent += parts[1]
-                streamHasThink = true
-              } else {
-                // 还没有遇到</think>，暂时全部作为思考内容
-                streamThink += delta.content
-              }
-            } else {
-              // 已经遇到</think>，后续内容全部作为输出内容
-              streamContent += delta.content
-            }
-          }
-        } catch (e) {
-          console.error('Error parsing stream:', e)
-        }
-      }
-    }
-    
-    // 使用分割后的内容
-    let annotationContent = streamContent.trim()
-    
-    // 如果没有内容，使用默认提示
-    if (!annotationContent) {
-      annotationContent = '无法生成注释，请稍后重试。'
-    }
-    
-    aiAnnotationResult.value = annotationContent
-    showAIAnnotationDialog.value = true
-    
-  } catch (err) {
-    aiAnnotationError.value = 'AI注释生成失败，请稍后重试'
-    console.error('AI annotation error:', err)
-  } finally {
-    aiAnnotationLoading.value = false
-  }
+async function handleAISelectionAnnotationWrapper() {
+  await handleAISelectionAnnotation(selectedText.value, article.value, selectedStartIndex.value, selectedEndIndex.value)
 }
 
 // 确认添加AI注释
-function confirmAddAIAnnotation() {
-  if (article.value && selectedText.value && aiAnnotationResult.value) {
-    const success = addAnnotation(
-      article.value.id,
-      selectedStartIndex.value,
-      selectedEndIndex.value,
-      selectedText.value,
-      aiAnnotationResult.value
-    )
-    if (success) {
-      showAIAnnotationDialog.value = false
-      aiAnnotationResult.value = ''
-      aiAnnotationSelectedText.value = ''
-    }
-  }
+function confirmAddAIAnnotationWrapper() {
+  confirmAddAIAnnotation(article.value, selectedText.value, selectedStartIndex.value, selectedEndIndex.value, addAnnotation)
 }
 
-// 取消AI注释
-function cancelAIAnnotation() {
-  showAIAnnotationDialog.value = false
-  aiAnnotationResult.value = ''
-  aiAnnotationSelectedText.value = ''
-}
-
-function removeAnnotation(annotationId: string) {
-  if (article.value) {
-    deleteAnnotation(article.value.id, annotationId)
-  }
-}
-
-function toggleAnnotation(annotationId: string) {
-  if (annotationLockMode.value !== 'normal') return
-  if (expandedAnnotations.value.has(annotationId)) {
-    expandedAnnotations.value.delete(annotationId)
-  } else {
-    expandedAnnotations.value.add(annotationId)
-  }
-}
-
-function setAnnotationMode(mode: 'normal' | 'locked' | 'all-expanded' | 'all-collapsed') {
-  annotationLockMode.value = mode
-  if (mode === 'all-expanded' && article.value) {
-    article.value.annotations.forEach(ann => {
-      expandedAnnotations.value.add(ann.id)
-    })
-  } else if (mode === 'all-collapsed') {
-    expandedAnnotations.value.clear()
-  }
-}
-
-function clearSelection() {
-  selectedText.value = ''
-  window.getSelection()?.removeAllRanges()
-}
-
-function startEditing() {
-  if (article.value) {
-    editContent.value = article.value.content
-    isEditing.value = true
-    showAnnotations.value = false
-    showSettings.value = false
-  }
-}
-
-function saveContent() {
-  if (article.value) {
-    updateArticle(article.value.id, { content: editContent.value })
-    isEditing.value = false
-  }
-}
-
-function cancelEditing() {
-  isEditing.value = false
-}
-
-function selectFont(font: string) {
-  updateSettings({ fontFamily: font })
-  showFontPicker.value = false
-}
-
-function getAnnotationDepth(annotation: Annotation, allAnnotations: Annotation[]): number {
-  let depth = 0
-  for (const other of allAnnotations) {
-    if (other.id !== annotation.id) {
-      if (other.startIndex < annotation.startIndex && other.endIndex > annotation.endIndex) {
-        depth = Math.max(depth, getAnnotationDepth(other, allAnnotations) + 1)
-      } else if (other.startIndex <= annotation.startIndex && other.endIndex >= annotation.endIndex && 
-                 (other.startIndex < annotation.startIndex || other.endIndex > annotation.endIndex)) {
-        depth = Math.max(depth, 1)
-      }
-    }
-  }
-  return depth
-}
-
-function getFormattedContent() {
-  if (!article.value) return ''
-
-  const content = article.value.content
-  const chars = content.split('')
-  const annotations = article.value.annotations
-
-  const sortedFormats = [...article.value.formats].sort((a, b) => a.startIndex - b.startIndex)
-
-  const formatStarts = new Map<number, TextFormat[]>()
-  const formatEnds = new Map<number, TextFormat[]>()
-
-  for (const format of sortedFormats) {
-    if (!formatStarts.has(format.startIndex)) {
-      formatStarts.set(format.startIndex, [])
-    }
-    formatStarts.get(format.startIndex)!.push(format)
-
-    if (!formatEnds.has(format.endIndex)) {
-      formatEnds.set(format.endIndex, [])
-    }
-    formatEnds.get(format.endIndex)!.push(format)
-  }
-
-  const annotationStarts = new Map<number, Annotation[]>()
-  const annotationEnds = new Map<number, Annotation[]>()
-
-  for (const ann of annotations) {
-    if (!annotationStarts.has(ann.startIndex)) {
-      annotationStarts.set(ann.startIndex, [])
-    }
-    annotationStarts.get(ann.startIndex)!.push(ann)
-
-    if (!annotationEnds.has(ann.endIndex)) {
-      annotationEnds.set(ann.endIndex, [])
-    }
-    annotationEnds.get(ann.endIndex)!.push(ann)
-  }
-
-  let result = ''
-
-  for (let i = 0; i < chars.length; i++) {
-    if (annotationStarts.has(i)) {
-      const startingAnns = annotationStarts.get(i)!
-      for (const ann of startingAnns) {
-        const depth = getAnnotationDepth(ann, annotations)
-        result += `<span class="ann-highlight ann-depth-${depth}" data-id="${ann.id}">`
-      }
-    }
-
-    if (formatStarts.has(i)) {
-      const starts = formatStarts.get(i)!
-      for (const format of starts) {
-        if (format.type === 'bold') {
-          result += '<strong>'
-        } else if (format.type === 'underline') {
-          result += '<u>'
-        }
-      }
-    }
-
-    result += chars[i]
-
-    if (formatEnds.has(i + 1)) {
-      const ends = formatEnds.get(i + 1)!
-      for (const format of ends) {
-        if (format.type === 'bold') {
-          result += '</strong>'
-        } else if (format.type === 'underline') {
-          result += '</u>'
-        }
-      }
-    }
-
-    if (annotationEnds.has(i + 1)) {
-      const endingAnns = annotationEnds.get(i + 1)!
-      for (const ann of endingAnns) {
-        const depth = getAnnotationDepth(ann, annotations)
-        const isExpanded = annotationLockMode.value === 'locked' || annotationLockMode.value === 'all-expanded' || expandedAnnotations.value.has(ann.id)
-        result += `</span>`
-        result += `<span class="ann-note ann-depth-${depth}" data-id="${ann.id}" data-content="${ann.content.replace(/"/g, '&quot;')}" data-expanded="${isExpanded}"></span>`
-      }
-    }
-  }
-
-  return result
-}
-
-function handleContentClick(e: MouseEvent) {
-  const target = e.target as HTMLElement
-
-  if (target.classList.contains('ann-note')) {
-    e.stopPropagation()
-    const id = target.dataset.id
-    if (id) {
-      toggleAnnotation(id)
-    }
-  }
-
-  if (target.classList.contains('ann-highlight')) {
-    const id = target.dataset.id
-    if (id) {
-      toggleAnnotation(id)
-    }
-  }
-}
-
-// 计算选中文本在文本中的位置
-function calculateTextPosition(startIndex: number) {
-  if (!article.value) return { paragraph: 0, line: 0, position: 0 }
-  
-  const content = article.value.content
-  const paragraphs = content.split('\n')
-  
-  let currentIndex = 0
-  let paragraph = 0
-  let line = 0
-  let position = 0
-  
-  for (let i = 0; i < paragraphs.length; i++) {
-    const paragraphText = paragraphs[i]
-    const lines = paragraphText.split('\n')
-    
-    for (let j = 0; j < lines.length; j++) {
-      const lineText = lines[j]
-      const lineLength = lineText.length
-      
-      if (currentIndex + lineLength >= startIndex) {
-        paragraph = i + 1 // 段落编号从1开始
-        line = j + 1 // 行号从1开始
-        position = startIndex - currentIndex + 1 // 位置从1开始
-        return { paragraph, line, position }
-      }
-      
-      currentIndex += lineLength + 1 // +1 for the newline
-    }
-  }
-  
-  return { paragraph: 0, line: 0, position: 0 }
-}
-
-function handlePrint() {
-  window.print()
-}
-
-// AI Chat methods
-async function sendMessage() {
-  if (isEmptyInput.value || loading.value || streaming.value) return
-  
-  const message = inputMessage.value.trim()
-  const currentSession = getCurrentSession()
-  if (!currentSession) return
-  
-  // 添加用户消息到当前会话
-  addMessageToSession(currentSession.id, { role: 'user', content: message, think: '' })
-  inputMessage.value = ''
-  error.value = ''
-  loading.value = true
-  streaming.value = true
-  streamContent.value = ''
-  
-  try {
-    const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer sk-lbtjhwrjebrwhwttikwrkasfwcbsijbuojzlizzihmoksyca'
-      },
-      body: JSON.stringify({
-        model: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-7B',
-        messages: [
-          {
-            role: 'system',
-            content: `你是一个专业的文言文助手，精通文言文的翻译、解释和赏析。请用简洁明了的语言回答用户的问题，避免使用过于学术化的术语。${aiContext.value}`
-          },
-          ...currentSession.messages.map(m => ({
-            role: m.role,
-            content: m.content
-          }))
-        ],
-        temperature: 0.7,
-        max_tokens: 1024,
-        stream: true
-      })
-    })
-    
-    if (!response.ok) {
-      throw new Error('API请求失败')
-    }
-    
-    const reader = response.body?.getReader()
-    if (!reader) {
-      throw new Error('No response body')
-    }
-    
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      
-      const chunk = new TextDecoder('utf-8').decode(value)
-      const lines = chunk.split('\n').filter(line => line.trim())
-      
-      for (const line of lines) {
-        if (line === 'data: [DONE]') {
-          continue
-        }
-        
-        try {
-          const data = JSON.parse(line.replace('data: ', ''))
-          const delta = data.choices[0]?.delta
-          if (delta?.content) {
-            if (!streamHasThink.value) {
-              // 检查是否包含</think>分隔符
-              if (delta.content.includes('</think>')) {
-                const parts = delta.content.split('</think>')
-                streamThink.value += parts[0]
-                streamContent.value += parts[1]
-                streamHasThink.value = true
-              } else {
-                // 还没有遇到</think>，暂时全部作为思考内容
-                streamThink.value += delta.content
-              }
-            } else {
-              // 已经遇到</think>，后续内容全部作为输出内容
-              streamContent.value += delta.content
-            }
-          }
-        } catch (e) {
-          console.error('Error parsing stream:', e)
-        }
-      }
-    }
-    
-    // 使用之前在流式处理中分离好的思考部分和输出部分
-    let think = streamThink.value.trim()
-    let content = streamContent.value.trim()
-    
-    // 如果没有思考部分，确保content不为空
-    if (!think && !content) {
-      content = '抱歉，我无法生成回答，请稍后重试。'
-    }
-    
-    // 添加助手消息到当前会话
-    addMessageToSession(currentSession.id, { role: 'assistant', content, think })
-    
-    // 重置流式处理状态
-    streamContent.value = ''
-    streamThink.value = ''
-    streamHasThink.value = false
-    
-    // 自动滚动到底部
-    setTimeout(() => {
-      const messagesContainer = document.querySelector('.messages')
-      if (messagesContainer) {
-        messagesContainer.scrollTop = messagesContainer.scrollHeight
-      }
-    }, 100)
-    
-  } catch (err) {
-    error.value = 'AI回复失败，请稍后重试'
-    console.error('AI error:', err)
-  } finally {
-    loading.value = false
-    streaming.value = false
-  }
-}
-
-function handleKeyDown(event: KeyboardEvent) {
-  if (event.key === 'Enter' && !event.shiftKey) {
-    event.preventDefault()
-    sendMessage()
-  }
-}
-
-function clearMessages() {
-  const currentSession = getCurrentSession()
-  if (currentSession) {
-    currentSession.messages = [
-      {
-        id: generateId(),
-        role: 'assistant',
-        content: '你好！我是文言文助手，有什么可以帮你的吗？',
-        think: '',
-        timestamp: Date.now()
-      }
-    ]
-    currentSession.updatedAt = Date.now()
-    saveChatSessions()
-  }
-  error.value = ''
-  streamContent.value = ''
-  streamThink.value = ''
-  streamHasThink.value = false
-  expandedMessages.value.clear()
-  aiContext.value = ''
-  selectedTextPosition.value = { paragraph: 0, line: 0, position: 0 }
-}
-
-// 导出聊天记录功能
-function exportChatSession(format: 'txt' | 'json') {
-  const currentSession = getCurrentSession()
-  if (!currentSession) return
-  
-  let content = ''
-  let filename = `${currentSession.title}.${format}`
-  
-  if (format === 'json') {
-    content = JSON.stringify(currentSession, null, 2)
-  } else if (format === 'txt') {
-    content = `聊天会话：${currentSession.title}\n`
-    content += `创建时间：${new Date(currentSession.createdAt).toLocaleString()}\n`
-    content += `更新时间：${new Date(currentSession.updatedAt).toLocaleString()}\n\n`
-    
-    currentSession.messages.forEach(msg => {
-      content += `${msg.role === 'user' ? '用户' : '助手'} ${new Date(msg.timestamp).toLocaleString()}\n`
-      if (msg.think) {
-        content += `思考过程：${msg.think}\n`
-      }
-      content += `${msg.content}\n\n`
-    })
-  }
-  
-  const blob = new Blob([content], { type: format === 'json' ? 'application/json' : 'text/plain' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-}
-
-// 侧边栏宽度调节功能
-const isResizing = ref(false)
-
-function startResize(e: MouseEvent) {
-  e.preventDefault()
-  e.stopPropagation()
-  isResizing.value = true
-  document.body.style.cursor = 'col-resize'
-  document.body.style.userSelect = 'none'
-}
-
-function resize(e: MouseEvent) {
-  if (!isResizing.value) return
-  
-  // 计算新的侧边栏宽度，限制最小宽度为200px，最大宽度为500px
-  // 直接使用鼠标相对于文档的x坐标作为新的侧边栏宽度
-  const newWidth = window.innerWidth - e.clientX
-  if (newWidth >= 200 && newWidth <= 500) {
-    sidebarWidth.value = newWidth
-  }
-}
-
-function stopResize() {
-  isResizing.value = false
-  document.body.style.cursor = ''
-  document.body.style.userSelect = ''
+// 保存编辑的注释
+function saveEditAnnotationWrapper() {
+  saveEditAnnotation(article.value, updateAnnotation)
 }
 </script>
 
@@ -1231,7 +284,7 @@ function stopResize() {
       <div class="actions">
         <template v-if="!isSharedArticle">
           <button v-if="isEditing" class="btn-text" @click="cancelEditing">取消</button>
-          <button class="btn-primary" @click="isEditing ? saveContent() : startEditing()">
+          <button class="btn-primary" @click="isEditing ? saveContentWrapper() : startEditing()">
             {{ isEditing ? '保存' : '编辑' }}
           </button>
         </template>
@@ -1295,8 +348,8 @@ function stopResize() {
               '--ann-font-size': settings.annotationFontSize + 'px'
             }"
             @mouseup="handleTextSelection"
-            v-html="getFormattedContent()"
-            @click="handleContentClick"
+            v-html="getFormattedContentWrapper()"
+            @click="handleContentClickWrapper"
           ></div>
         </article>
       </div>
@@ -1359,7 +412,7 @@ function stopResize() {
                   <div class="font-group-title">预设</div>
                   <div v-for="font in presetFonts"
                     :key="font" class="font-option" :class="{ active: settings.fontFamily === font }"
-                    :style="{ fontFamily: font }" @click.stop="selectFont(font)">
+                    :style="{ fontFamily: font }" @click.stop="selectFontWrapper(font)">
                     {{ font.includes('SourceHan') ? '思源宋体' : font.includes(',') ? font.split(',')[0] : font === 'serif' ? '宋体' : font === 'sans-serif' ? '黑体' : font }}
                   </div>
                 </div>
@@ -1367,7 +420,7 @@ function stopResize() {
                   <div class="font-group-title">本地</div>
                   <div v-for="font in localFonts.slice(0, 30)" :key="font"
                     class="font-option" :class="{ active: settings.fontFamily === font }"
-                    :style="{ fontFamily: font }" @click.stop="selectFont(font)">
+                    :style="{ fontFamily: font }" @click.stop="selectFontWrapper(font)">
                     {{ font }}
                   </div>
                 </div>
@@ -1477,7 +530,7 @@ function stopResize() {
                   <textarea v-model="editingAnnotationContent" rows="2"></textarea>
                   <div class="ann-edit-actions">
                     <button class="btn-text" @click="cancelEditAnnotation">取消</button>
-                    <button class="btn-primary sm" @click="saveEditAnnotation" :disabled="!editingAnnotationContent.trim()">保存</button>
+                    <button class="btn-primary sm" @click="saveEditAnnotationWrapper" :disabled="!editingAnnotationContent.trim()">保存</button>
                   </div>
                 </div>
                 <div v-else>
@@ -1733,7 +786,7 @@ function stopResize() {
               v-model="inputMessage"
               placeholder="输入你的问题，例如：'学而时习之，不亦说乎'是什么意思？"
               rows="2"
-              @keydown="handleKeyDown"
+              @keydown="(e) => handleKeyDown(e, chatSession)"
               :disabled="loading || streaming"
             ></textarea>
             <div class="footer-actions">
@@ -1767,7 +820,7 @@ function stopResize() {
                   </div>
                 </button>
               </div>
-              <button class="btn-text" @click="clearMessages" title="清空对话">
+              <button class="btn-text" @click="clearMessages(chatSession)" title="清空对话">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <polyline points="3,6 5,6 21,6"></polyline>
                   <path d="M19,6v14a2,2,0,0,1-2,2H7a2,2,0,0,1-2-2V6m3,0V4a2,2,0,0,1,2-2h4a2,2,0,0,1,2,2v2"></path>
@@ -1775,7 +828,7 @@ function stopResize() {
               </button>
               <button 
                 class="btn-primary" 
-                @click="sendMessage"
+                @click="sendMessage(chatSession)"
                 :disabled="isEmptyInput || loading || streaming"
               >
                 <svg v-if="!loading && !streaming" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1829,7 +882,7 @@ function stopResize() {
             </svg>
             <span>问AI</span>
           </button>
-          <button class="menu-item" @click="handleAISelectionAnnotation(); hideContextMenu()">
+          <button class="menu-item" @click="handleAISelectionAnnotationWrapper(); hideContextMenu()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M12,2a10,10,0,0,1,9.95,9h1.5a1.5,1.5,0,0,1,0,3h-1.5a9.94,9.94,0,0,1-1.33,4.67,1.5,1.5,0,0,1-2.68,0,6.47,6.47,0,0,0-10.87,0,1.5,1.5,0,0,1-2.68,0A9.94,9.94,0,0,1,3.5,14H2a1.5,1.5,0,0,1,0-3H3.5A10,10,0,0,1,12,2Z"></path>
               <path d="M12,16v-4"></path>
@@ -1878,7 +931,7 @@ function stopResize() {
               <div class="ai-annotation-result">
                 <div class="result-header">
                   <span class="label">AI生成的注释：</span>
-                  <button class="btn-icon sm" @click="handleAISelectionAnnotation()" title="重新生成">
+                  <button class="btn-icon sm" @click="handleAISelectionAnnotationWrapper()" title="重新生成">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <polyline points="23,4 23,10 17,10"></polyline>
                       <polyline points="1,20 1,14 7,14"></polyline>
@@ -1895,7 +948,7 @@ function stopResize() {
             </div>
             <div class="dialog-footer">
               <button class="btn-text" @click="cancelAIAnnotation">取消</button>
-              <button class="btn-primary" @click="confirmAddAIAnnotation">添加到文章</button>
+              <button class="btn-primary" @click="confirmAddAIAnnotationWrapper">添加到文章</button>
             </div>
           </div>
         </div>
