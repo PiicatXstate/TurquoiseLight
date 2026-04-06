@@ -1,19 +1,14 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useArticles } from '@/composables/useArticles'
-import { useAuth } from '@/composables/useAuth'
 import Logo from '@/components/Logo.vue'
 import Dictionary from '@/components/Dictionary.vue'
-import { generateId, saveArticles } from '@/utils/storage'
+import { generateId, saveArticles, exportData, importData } from '@/utils/storage'
 
 const emit = defineEmits<{
   (e: 'openArticle', id: string): void
-  (e: 'openSquare'): void
-  (e: 'openLogin'): void
-  (e: 'logout'): void
+  (e: 'openSettings'): void
 }>()
-
-const { user, isLoggedIn } = useAuth()
 
 const {
   articles,
@@ -29,7 +24,9 @@ const {
   toggleFavorite,
   moveArticle,
   addFolder,
-  deleteFolder
+  deleteFolder,
+  reloadArticles,
+  reloadFolders
 } = useArticles()
 
 const showCreateModal = ref(false)
@@ -192,6 +189,47 @@ function handleExportArticle(id: string, event: Event) {
   a.click()
   URL.revokeObjectURL(url)
 }
+
+function handleExportAll() {
+  const data = exportData()
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  const date = new Date().toISOString().split('T')[0]
+  a.download = `turquoise_backup_${date}.json`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function handleImportAll(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target?.result as string)
+      
+      if (data.version && data.articles) {
+        const result = importData(data)
+        if (result.success) {
+          reloadArticles()
+          reloadFolders()
+          alert(result.message)
+        } else {
+          alert(result.message)
+        }
+      } else {
+        alert('无效的备份文件格式')
+      }
+    } catch {
+      alert('导入失败，请检查文件格式')
+    }
+  }
+  reader.readAsText(file)
+  ;(event.target as HTMLInputElement).value = ''
+}
 </script>
 
 <template>
@@ -211,33 +249,7 @@ function handleExportArticle(id: string, event: Event) {
         </svg>
       </button>
       
-      <div class="sidebar-section user-section">
-        <div v-if="isLoggedIn && user" class="user-info">
-          <div class="user-avatar">{{ user.username.charAt(0).toUpperCase() }}</div>
-          <div class="user-details">
-            <span class="user-name">{{ user.username }}</span>
-            <button class="logout-btn" @click="emit('logout')">退出登录</button>
-          </div>
-        </div>
-        <button v-else class="nav-item login-btn" @click="emit('openLogin')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M20,21v-2a4,4,0,0,0-4-4H8a4,4,0,0,0-4,4v2"></path>
-            <circle cx="12" cy="7" r="4"></circle>
-          </svg>
-          <span>登录 / 注册</span>
-        </button>
-      </div>
-      
-      <div class="sidebar-section">
-        <button class="nav-item square-btn" @click="emit('openSquare')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"></circle>
-            <line x1="2" y1="12" x2="22" y2="12"></line>
-            <path d="M12,2a15.3,15.3,0,0,1,4,10,15.3,15.3,0,0,1-4,10,15.3,15.3,0,0,1-4-10A15.3,15.3,0,0,1,12,2Z"></path>
-          </svg>
-          <span>文章广场</span>
-        </button>
-      </div>
+
 
       <div class="sidebar-section">
         <button class="nav-item" :class="{ active: currentView === 'all' }" @click="switchView('all')">
@@ -311,6 +323,41 @@ function handleExportArticle(id: string, event: Event) {
           </button>
           <div v-if="folders.length === 0" class="empty-folder">暂无文件夹</div>
         </div>
+      </div>
+
+      <div class="sidebar-section settings-section">
+        <button class="nav-item" @click="handleExportAll">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          <span>导出全部</span>
+        </button>
+        
+        <button class="nav-item" @click="($refs.importAllInput as HTMLInputElement).click()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+          </svg>
+          <span>导入备份</span>
+        </button>
+        <input 
+          ref="importAllInput"
+          type="file" 
+          accept=".json"
+          @change="handleImportAll"
+          style="display: none"
+        >
+        
+        <button class="nav-item" @click="emit('openSettings')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          <span>设置</span>
+        </button>
       </div>
     </div>
 
@@ -592,21 +639,23 @@ function handleExportArticle(id: string, event: Event) {
 <style scoped>
 .article-list {
   min-height: 100vh;
-  background: #fafafa;
+  background: var(--bg-secondary);
   position: relative;
   display: flex;
 }
 
 .sidebar {
   width: 220px;
-  background: white;
-  border-right: 1px solid #eee;
+  background: var(--bg-primary);
+  border-right: 1px solid var(--border-color);
   padding: 3rem 0.75rem 1rem;
   position: fixed;
   top: 0;
   left: 0;
   bottom: 0;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .sidebar-logo {
@@ -642,7 +691,7 @@ function handleExportArticle(id: string, event: Event) {
 
 .user-section {
   padding: 0.75rem;
-  background: #f8f9fa;
+  background: var(--bg-tertiary);
   border-radius: 8px;
   margin-bottom: 1rem;
 }
@@ -657,8 +706,8 @@ function handleExportArticle(id: string, event: Event) {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: #2dd4bf;
-  color: white;
+  background: var(--primary-color);
+  color: var(--text-inverse);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -675,13 +724,13 @@ function handleExportArticle(id: string, event: Event) {
 .user-name {
   font-size: 0.875rem;
   font-weight: 500;
-  color: #1a1a1a;
+  color: var(--text-primary);
 }
 
 .logout-btn {
   background: transparent;
   border: none;
-  color: #999;
+  color: var(--text-tertiary);
   font-size: 0.6875rem;
   cursor: pointer;
   text-align: left;
@@ -689,17 +738,17 @@ function handleExportArticle(id: string, event: Event) {
 }
 
 .logout-btn:hover {
-  color: #dc2626;
+  color: var(--error-color);
 }
 
 .login-btn {
-  background: #f0fdfa !important;
-  color: #2dd4bf !important;
+  background: var(--primary-50) !important;
+  color: var(--primary-color) !important;
 }
 
 .square-btn {
-  background: linear-gradient(135deg, #f0fdfa 0%, #ecfdf5 100%) !important;
-  color: #14b8a6 !important;
+  background: linear-gradient(135deg, var(--primary-50) 0%, var(--primary-50) 100%) !important;
+  color: var(--primary-color) !important;
 }
 
 .import-label {
@@ -713,7 +762,7 @@ function handleExportArticle(id: string, event: Event) {
   padding: 0 0.5rem;
   margin-bottom: 0.375rem;
   font-size: 0.6875rem;
-  color: #999;
+  color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -728,7 +777,7 @@ function handleExportArticle(id: string, event: Event) {
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .section-btn svg {
@@ -737,8 +786,8 @@ function handleExportArticle(id: string, event: Event) {
 }
 
 .section-btn:hover {
-  background: #f0f0f0;
-  color: #666;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
 }
 
 .nav-item {
@@ -752,7 +801,7 @@ function handleExportArticle(id: string, event: Event) {
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.8125rem;
-  color: #666;
+  color: var(--text-secondary);
   text-align: left;
   transition: all 0.15s;
 }
@@ -764,26 +813,26 @@ function handleExportArticle(id: string, event: Event) {
 }
 
 .nav-item:hover {
-  background: #f5f5f5;
+  background: var(--bg-tertiary);
 }
 
 .nav-item.active {
-  background: #f0fdfa;
-  color: #2dd4bf;
+  background: var(--primary-50);
+  color: var(--primary-color);
 }
 
 .nav-item .count {
   margin-left: auto;
   font-size: 0.6875rem;
-  color: #999;
-  background: #f0f0f0;
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
   padding: 0.125rem 0.375rem;
   border-radius: 8px;
 }
 
 .nav-item.active .count {
-  background: #2dd4bf;
-  color: white;
+  background: var(--primary-color);
+  color: var(--text-inverse);
 }
 
 .delete-folder {
@@ -797,7 +846,7 @@ function handleExportArticle(id: string, event: Event) {
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  color: #999;
+  color: var(--text-tertiary);
   opacity: 0;
   transition: all 0.15s;
 }
@@ -812,14 +861,20 @@ function handleExportArticle(id: string, event: Event) {
 }
 
 .delete-folder:hover {
-  background: #fee2e2;
-  color: #dc2626;
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--error-color);
 }
 
 .empty-folder {
   font-size: 0.75rem;
-  color: #999;
+  color: var(--text-tertiary);
   padding: 0.5rem 0.625rem;
+}
+
+.settings-section {
+  margin-top: auto;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color);
 }
 
 .main-content {
@@ -839,14 +894,14 @@ function handleExportArticle(id: string, event: Event) {
 .view-header h2 {
   font-size: 1rem;
   font-weight: 500;
-  color: #1a1a1a;
+  color: var(--text-primary);
   margin: 0;
 }
 
 .empty-trash-btn {
   padding: 0.375rem 0.75rem;
-  background: #fee2e2;
-  color: #dc2626;
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--error-color);
   border: none;
   border-radius: 6px;
   font-size: 0.75rem;
@@ -854,7 +909,7 @@ function handleExportArticle(id: string, event: Event) {
 }
 
 .empty-trash-btn:hover {
-  background: #fecaca;
+  background: rgba(239, 68, 68, 0.2);
 }
 
 .articles {
@@ -863,16 +918,16 @@ function handleExportArticle(id: string, event: Event) {
 }
 
 .article-card {
-  background: white;
+  background: var(--bg-primary);
   border-radius: 4px;
   overflow: hidden;
   cursor: pointer;
   transition: all 0.2s ease;
-  border: 1px solid #e5e5e5;
+  border: 1px solid var(--border-color);
 }
 
 .article-card:hover {
-  border-color: #2dd4bf;
+  border-color: var(--primary-color);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
@@ -891,7 +946,7 @@ function handleExportArticle(id: string, event: Event) {
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--text-primary);
   line-height: 1.4;
 }
 
@@ -910,7 +965,7 @@ function handleExportArticle(id: string, event: Event) {
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  color: #999;
+  color: var(--text-tertiary);
   transition: all 0.15s;
 }
 
@@ -920,22 +975,22 @@ function handleExportArticle(id: string, event: Event) {
 }
 
 .action-btn:hover {
-  background: #f0f0f0;
-  color: #666;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
 }
 
 .action-btn.active {
-  color: #f59e0b;
-  fill: #f59e0b;
+  color: var(--warning-color);
+  fill: var(--warning-color);
 }
 
 .action-btn.delete:hover {
-  background: #fee2e2;
-  color: #dc2626;
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--error-color);
 }
 
 .card-preview {
-  color: #666;
+  color: var(--text-secondary);
   font-size: 0.8125rem;
   margin: 0 0 0.75rem 0;
   line-height: 1.6;
@@ -949,7 +1004,7 @@ function handleExportArticle(id: string, event: Event) {
   display: flex;
   gap: 1rem;
   font-size: 0.75rem;
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .empty-state {
@@ -967,14 +1022,14 @@ function handleExportArticle(id: string, event: Event) {
 }
 
 .empty-state h3 {
-  color: #666;
+  color: var(--text-secondary);
   font-size: 1rem;
   margin-bottom: 0.375rem;
   font-weight: 500;
 }
 
 .empty-state p {
-  color: #999;
+  color: var(--text-tertiary);
   font-size: 0.8125rem;
 }
 
@@ -984,8 +1039,8 @@ function handleExportArticle(id: string, event: Event) {
   bottom: 2rem;
   width: 44px;
   height: 44px;
-  background: #2dd4bf;
-  color: white;
+  background: var(--primary-color);
+  color: var(--bg-primary);
   border: none;
   border-radius: 50%;
   cursor: pointer;
@@ -999,14 +1054,14 @@ function handleExportArticle(id: string, event: Event) {
 
 .fab.dict {
   right: 5.5rem;
-  background: white;
-  color: #666;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .fab.dict:hover {
-  background: #f0fdfa;
-  color: #2dd4bf;
+  background: var(--primary-50);
+  color: var(--primary-color);
 }
 
 .fab svg {
@@ -1015,7 +1070,7 @@ function handleExportArticle(id: string, event: Event) {
 }
 
 .fab:hover {
-  background: #14b8a6;
+  background: var(--primary-color);
   transform: scale(1.05);
   box-shadow: 0 4px 12px rgba(45, 212, 191, 0.35);
 }
@@ -1036,10 +1091,10 @@ function handleExportArticle(id: string, event: Event) {
 }
 
 .modal {
-  background: white;
-  border-radius: 4px;
+  background: var(--bg-primary);
+  border-radius: 2px;
   width: 100%;
-  max-width: 480px;
+  max-width: 600px;
   max-height: 90vh;
   overflow: hidden;
   display: flex;
@@ -1056,23 +1111,23 @@ function handleExportArticle(id: string, event: Event) {
   justify-content: space-between;
   align-items: center;
   padding: 1rem 1.25rem;
-  border-bottom: 1px solid #e5e5e5;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .modal-header h2 {
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--text-primary);
 }
 
 .modal-close {
   padding: 0.375rem;
-  background: #f5f5f5;
+  background: var(--bg-tertiary);
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  color: #666;
+  color: var(--text-secondary);
   transition: all 0.2s ease;
   display: flex;
   align-items: center;
@@ -1085,8 +1140,8 @@ function handleExportArticle(id: string, event: Event) {
 }
 
 .modal-close:hover {
-  background: #e5e5e5;
-  color: #1a1a1a;
+  background: var(--border-color);
+  color: var(--text-primary);
 }
 
 .modal-body {
@@ -1105,13 +1160,13 @@ function handleExportArticle(id: string, event: Event) {
 .form-group label {
   display: block;
   margin-bottom: 0.375rem;
-  color: #4a4a4a;
+  color: var(--text-secondary);
   font-size: 0.8125rem;
   font-weight: 500;
 }
 
 .optional {
-  color: #999;
+  color: var(--text-tertiary);
   font-weight: 400;
 }
 
@@ -1119,20 +1174,20 @@ function handleExportArticle(id: string, event: Event) {
 .form-group textarea {
   width: 100%;
   padding: 0.625rem 0.75rem;
-  border: 1px solid #e5e5e5;
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   font-size: 0.875rem;
   font-family: inherit;
   transition: all 0.2s ease;
   box-sizing: border-box;
-  background: #fafafa;
+  background: var(--bg-secondary);
 }
 
 .form-group input:focus,
 .form-group textarea:focus {
   outline: none;
-  border-color: #2dd4bf;
-  background: white;
+  border-color: var(--primary-color);
+  background: var(--bg-primary);
 }
 
 .form-group textarea {
@@ -1146,8 +1201,8 @@ function handleExportArticle(id: string, event: Event) {
   gap: 0.5rem;
   justify-content: flex-end;
   padding: 1rem 1.25rem;
-  border-top: 1px solid #e5e5e5;
-  background: #fafafa;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
 }
 
 .btn-primary,
@@ -1161,13 +1216,13 @@ function handleExportArticle(id: string, event: Event) {
 }
 
 .btn-primary {
-  background: #2dd4bf;
-  color: white;
+  background: var(--primary-color);
+  color: var(--bg-primary);
   border: none;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #14b8a6;
+  background: var(--primary-color);
 }
 
 .btn-primary:disabled {
@@ -1176,13 +1231,13 @@ function handleExportArticle(id: string, event: Event) {
 }
 
 .btn-secondary {
-  background: white;
-  color: #666;
-  border: 1px solid #e5e5e5;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
 }
 
 .btn-secondary:hover {
-  background: #f5f5f5;
+  background: var(--bg-tertiary);
 }
 
 .folder-select-list {
@@ -1201,7 +1256,7 @@ function handleExportArticle(id: string, event: Event) {
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.875rem;
-  color: #4a4a4a;
+  color: var(--text-secondary);
   text-align: left;
   width: 100%;
   transition: all 0.15s;
@@ -1210,16 +1265,16 @@ function handleExportArticle(id: string, event: Event) {
 .folder-select-item svg {
   width: 18px;
   height: 18px;
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .folder-select-item:hover {
-  background: #f0fdfa;
-  color: #2dd4bf;
+  background: var(--primary-50);
+  color: var(--primary-color);
 }
 
 .folder-select-item:hover svg {
-  color: #2dd4bf;
+  color: var(--primary-color);
 }
 
 .modal-enter-active,
@@ -1259,11 +1314,11 @@ function handleExportArticle(id: string, event: Event) {
     height: 28px;
     align-items: center;
     justify-content: center;
-    background: #f5f5f5;
+    background: var(--bg-tertiary);
     border: none;
     border-radius: 50%;
     cursor: pointer;
-    color: #666;
+    color: var(--text-secondary);
   }
 
   .mobile-sidebar-close svg {
@@ -1315,8 +1370,8 @@ function handleExportArticle(id: string, event: Event) {
     bottom: 0;
     left: 0;
     right: 0;
-    background: white;
-    border-top: 1px solid #eee;
+    background: var(--bg-primary);
+    border-top: 1px solid var(--border-color);
     padding: 0.5rem 0.25rem;
     padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
     z-index: 100;
@@ -1333,7 +1388,7 @@ function handleExportArticle(id: string, event: Event) {
     background: transparent;
     border: none;
     cursor: pointer;
-    color: #999;
+    color: var(--text-tertiary);
     font-size: 0.625rem;
     transition: all 0.15s;
   }
@@ -1344,12 +1399,12 @@ function handleExportArticle(id: string, event: Event) {
   }
 
   .mobile-nav-item.active {
-    color: #2dd4bf;
+    color: var(--primary-color);
   }
 
   .mobile-nav-item.create {
-    background: #2dd4bf;
-    color: white;
+    background: var(--primary-color);
+    color: var(--bg-primary);
     border-radius: 50%;
     width: 44px;
     height: 44px;
@@ -1366,7 +1421,7 @@ function handleExportArticle(id: string, event: Event) {
   }
 
   .mobile-nav-item.create:hover {
-    background: #14b8a6;
+    background: var(--primary-color);
   }
 }
 

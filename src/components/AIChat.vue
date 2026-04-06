@@ -224,14 +224,14 @@ function clearMessages() {
 }
 
 .ai-content {
-  background: white;
+  background: var(--bg-primary);
   width: 100%;
   max-width: 400px;
   height: 100%;
   display: flex;
   flex-direction: column;
   box-shadow: -20px 0 60px rgba(0, 0, 0, 0.1);
-  border-left: 1px solid #eee;
+  border-left: 1px solid var(--border-color);
 }
 
 .ai-header {
@@ -239,15 +239,15 @@ function clearMessages() {
   justify-content: space-between;
   align-items: center;
   padding: 1rem 1.25rem;
-  border-bottom: 1px solid #eee;
-  background: #f8f9fa;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
 }
 
 .ai-header h2 {
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--text-primary);
 }
 
 .ai-actions {
@@ -265,13 +265,13 @@ function clearMessages() {
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  color: #666;
+  color: var(--text-secondary);
   transition: all 0.15s;
 }
 
 .clear-btn:hover, .close-btn:hover {
-  background: #e9ecef;
-  color: #333;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .clear-btn svg, .close-btn svg {
@@ -323,13 +323,13 @@ function clearMessages() {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: #f0f0f0;
+  background: var(--bg-tertiary);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 12px;
   font-weight: 500;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .message-content {
@@ -340,27 +340,27 @@ function clearMessages() {
 }
 
 .message.user .message-content {
-  background: #e3f2fd;
-  color: #1565c0;
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--info-color);
   border-top-left-radius: 4px;
 }
 
 .message.assistant .message-content {
-  background: #f8f9fa;
-  color: #333;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
   border-top-right-radius: 4px;
 }
 
 .message.assistant .message-content.streaming {
-  background: #f0f9ff;
-  border: 1px solid #e0f2fe;
+  background: rgba(6, 182, 212, 0.1);
+  border: 1px solid rgba(6, 182, 212, 0.2);
 }
 
 .loading-message {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  color: #666;
+  color: var(--text-secondary);
   font-size: 0.8125rem;
   padding: 0.5rem 0;
 }
@@ -373,7 +373,7 @@ function clearMessages() {
 .loading-dots span {
   width: 6px;
   height: 6px;
-  background: #999;
+  background: var(--text-tertiary);
   border-radius: 50%;
   animation: loading 1.4s infinite ease-in-out both;
 }
@@ -396,8 +396,8 @@ function clearMessages() {
 }
 
 .error-message {
-  background: #fef2f2;
-  color: #dc2626;
+  background: rgba(239, 68, 68, 0.05);
+  color: var(--error-color);
   padding: 0.5rem;
   border-radius: 6px;
   font-size: 0.8125rem;
@@ -406,15 +406,15 @@ function clearMessages() {
 
 .ai-footer {
   padding: 1rem;
-  border-top: 1px solid #eee;
-  background: #f8f9fa;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
   position: relative;
 }
 
 .ai-footer textarea {
   width: 100%;
   padding: 0.75rem;
-  border: 1px solid #e5e5e5;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   font-size: 0.875rem;
   resize: none;
@@ -425,12 +425,12 @@ function clearMessages() {
 
 .ai-footer textarea:focus {
   outline: none;
-  border-color: #2dd4bf;
+  border-color: var(--primary-color);
   box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.1);
 }
 
 .ai-footer textarea:disabled {
-  background: #f5f5f5;
+  background: var(--bg-tertiary);
   cursor: not-allowed;
 }
 
@@ -442,8 +442,8 @@ function clearMessages() {
   height: 36px;
   border: none;
   border-radius: 50%;
-  background: #2dd4bf;
-  color: white;
+  background: var(--primary-color);
+  color: var(--bg-primary);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -452,12 +452,12 @@ function clearMessages() {
 }
 
 .send-btn:hover:not(:disabled) {
-  background: #14b8a6;
+  background: var(--primary-color);
   transform: scale(1.05);
 }
 
 .send-btn:disabled {
-  background: #ccc;
+  background: var(--gray-300);
   cursor: not-allowed;
 }
 
@@ -471,7 +471,7 @@ function clearMessages() {
   height: 20px;
   border: 2px solid rgba(255, 255, 255, 0.3);
   border-radius: 50%;
-  border-top-color: white;
+  border-top-color: var(--bg-primary);
   animation: spin 1s ease-in-out infinite;
 }
 

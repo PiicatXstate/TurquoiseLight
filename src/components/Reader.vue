@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import type { Annotation, SharedArticle } from '@/types'
+import { computed, watch } from 'vue'
+import type { SharedArticle } from '@/types'
 import { useArticles } from '@/composables/useArticles'
 import { useSettings } from '@/composables/useSettings'
 import { useChatSessions } from '@/composables/useChatSessions'
@@ -8,6 +8,7 @@ import { useAIChat } from '@/composables/useAIChat'
 import { useAnnotations } from '@/composables/useAnnotations'
 import { useDictionary } from '@/composables/useDictionary'
 import { useReader } from '@/composables/useReader'
+import { renderMarkdown } from '@/utils/markdown'
 
 const props = defineProps<{
   articleId: string
@@ -64,7 +65,6 @@ const {
 } = chatSession
 
 const {
-  messages,
   expandedMessages,
   inputMessage,
   loading,
@@ -84,7 +84,6 @@ const {
 const {
   showAIAnnotationDialog,
   aiAnnotationLoading,
-  aiAnnotationError,
   aiAnnotationResult,
   aiAnnotationSelectedText,
   annotationContent,
@@ -116,6 +115,8 @@ const {
   showAnnotations,
   showDictionary,
   showAIChat,
+  splitPanelMode,
+  splitRatio,
   selectedText,
   selectedStartIndex,
   selectedEndIndex,
@@ -147,9 +148,52 @@ const {
   calculateTextPosition,
   handlePrint,
   startResize,
-  resize,
-  stopResize
+  startSplitResize
 } = reader
+
+// 监听AI聊天面板的显示状态，保存和恢复滚动位置
+watch(showAIChat, (newValue, oldValue) => {
+  if (!oldValue && newValue) {
+    // 面板从关闭到打开，恢复滚动位置
+    setTimeout(() => {
+      const messagesContainer = document.querySelector('.messages')
+      if (messagesContainer) {
+        // 这里可以添加恢复滚动位置的逻辑
+        // 由于滚动位置已经在useChatSessions中处理，这里可以不做额外操作
+      }
+    }, 50)
+  } else if (oldValue && !newValue) {
+    // 面板从打开到关闭，保存滚动位置
+    const messagesContainer = document.querySelector('.messages')
+    if (messagesContainer) {
+      // 滚动位置已经在useChatSessions中处理
+    }
+  }
+})
+
+// 监听分屏模式的变化，保存和恢复滚动位置
+watch(splitPanelMode, (newValue, oldValue) => {
+  if (!oldValue && newValue) {
+    // 进入分屏模式，恢复滚动位置
+    setTimeout(() => {
+      const messagesContainer = document.querySelector('.messages')
+      if (messagesContainer) {
+        // 滚动位置已经在useChatSessions中处理
+      }
+    }, 50)
+  } else if (oldValue && !newValue) {
+    // 退出分屏模式，保存滚动位置
+    const messagesContainer = document.querySelector('.messages')
+    if (messagesContainer) {
+      // 滚动位置已经在useChatSessions中处理
+    }
+  }
+})
+
+// 确保readerContent被使用，避免TypeScript错误
+if (readerContent) {
+  // readerContent用于绑定到DOM元素，在useReader中使用
+}
 
 // 监听选中的注释文本变化
 watch(() => selectedAnnotationText.value, (newText) => {
@@ -203,7 +247,7 @@ function selectFontWrapper(font: string) {
 }
 
 // 处理内容点击
-function handleContentClickWrapper(e: MouseEvent) {
+function handleContentClickWrapper(e: MouseEvent | TouchEvent) {
   handleContentClick(e, toggleAnnotation)
 }
 
@@ -270,6 +314,54 @@ function confirmAddAIAnnotationWrapper() {
 function saveEditAnnotationWrapper() {
   saveEditAnnotation(article.value, updateAnnotation)
 }
+
+// 切换词典面板
+function toggleDictionary() {
+  showDictionary.value = !showDictionary.value
+  if (showDictionary.value) {
+    showSettings.value = false
+    showAnnotations.value = false
+    showAIChat.value = false
+    splitPanelMode.value = false
+  }
+}
+
+// 切换设置面板
+function toggleSettings() {
+  showSettings.value = !showSettings.value
+  if (showSettings.value) {
+    showAnnotations.value = false
+    showAIChat.value = false
+    showDictionary.value = false
+    splitPanelMode.value = false
+  }
+}
+
+// 切换注释面板
+function toggleAnnotations() {
+  if (showAIChat.value) {
+    splitPanelMode.value = !showAnnotations.value
+    showAnnotations.value = !showAnnotations.value
+  } else {
+    showAnnotations.value = !showAnnotations.value
+    showSettings.value = false
+    showDictionary.value = false
+    splitPanelMode.value = false
+  }
+}
+
+// 切换AI聊天面板
+function toggleAIChat() {
+  if (showAnnotations.value) {
+    splitPanelMode.value = !showAIChat.value
+    showAIChat.value = !showAIChat.value
+  } else {
+    showAIChat.value = !showAIChat.value
+    showSettings.value = false
+    showDictionary.value = false
+    splitPanelMode.value = false
+  }
+}
 </script>
 
 <template>
@@ -280,7 +372,6 @@ function saveEditAnnotationWrapper() {
           <polyline points="15,18 9,12 15,6"></polyline>
         </svg>
       </button>
-      <h1 class="title">{{ article.title }}</h1>
       <div class="actions">
         <template v-if="!isSharedArticle">
           <button v-if="isEditing" class="btn-text" @click="cancelEditing">取消</button>
@@ -296,38 +387,37 @@ function saveEditAnnotationWrapper() {
             <rect x="6" y="14" width="12" height="8"></rect>
           </svg>
         </button>
-        <button v-if="!isEditing" class="btn-icon" :class="{ active: showDictionary }" @click="showDictionary = !showDictionary; showSettings = false; showAnnotations = false; showAIChat = false" title="词典">
+        <button v-if="!isEditing" class="btn-icon" :class="{ active: showDictionary }" @click="toggleDictionary" title="词典">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M4,19.5A2.5,2.5,0,0,1,6.5,17H20"></path>
             <path d="M6.5,2H20V22H6.5A2.5,2.5,0,0,1,4,19.5V4.5A2.5,2.5,0,0,1,6.5,2Z"></path>
           </svg>
         </button>
-        <button v-if="!isEditing" class="btn-icon" :class="{ active: showSettings }" @click="showSettings = !showSettings; showAnnotations = false; showAIChat = false; showDictionary = false">
+        <button v-if="!isEditing" class="btn-icon" :class="{ active: showSettings }" @click="toggleSettings">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="3"></circle>
             <path d="M19.4,15a1.65,1.65,0,0,0,.33,1.82l.06.06a2,2,0,0,1,0,2.83,2,2,0,0,1-2.83,0l-.06-.06a1.65,1.65,0,0,0-1.82-.33,1.65,1.65,0,0,0-1,1.51V21a2,2,0,0,1-2,2,2,2,0,0,1-2-2v-.09A1.65,1.65,0,0,0,9,19.4a1.65,1.65,0,0,0-1.82.33l-.06.06a2,2,0,0,1-2.83,0,2,2,0,0,1,0-2.83l.06-.06a1.65,1.65,0,0,0,.33-1.82,1.65,1.65,0,0,0-1.51-1H3a2,2,0,0,1-2-2,2,2,0,0,1,2-2h.09A1.65,1.65,0,0,0,4.6,9a1.65,1.65,0,0,0-.33-1.82l-.06-.06a2,2,0,0,1,0-2.83,2,2,0,0,1,2.83,0l.06.06a1.65,1.65,0,0,0,1.82.33H9a1.65,1.65,0,0,0,1-1.51V3a2,2,0,0,1,2-2,2,2,0,0,1,2,2v.09a1.65,1.65,0,0,0,1,1.51,1.65,1.65,0,0,0,1.82-.33l.06-.06a2,2,0,0,1,2.83,0,2,2,0,0,1,0,2.83l-.06.06a1.65,1.65,0,0,0-.33,1.82V9a1.65,1.65,0,0,0,1.51,1H21a2,2,0,0,1,2,2,2,2,0,0,1-2,2h-.09a1.65,1.65,0,0,0-1.51,1Z"></path>
           </svg>
         </button>
-        <button v-if="!isEditing" class="btn-icon" :class="{ active: showAnnotations }" @click="showAnnotations = !showAnnotations; showSettings = false; showAIChat = false; showDictionary = false">
+        <button v-if="!isEditing" class="btn-icon" :class="{ active: showAnnotations }" @click="toggleAnnotations">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M14,2H6A2,2,0,0,0,4,4V20a2,2,0,0,0,2,2H18a2,2,0,0,0,2-2V8Z"></path>
             <polyline points="14,2 14,8 20,8"></polyline>
           </svg>
           <span v-if="article.annotations.length > 0" class="badge">{{ article.annotations.length }}</span>
         </button>
-        <button v-if="!isEditing" class="btn-icon" :class="{ active: showAIChat }" @click="showAIChat = !showAIChat; showSettings = false; showAnnotations = false; showDictionary = false">
+        <button v-if="!isEditing" class="btn-icon" :class="{ active: showAIChat }" @click="toggleAIChat">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12,2a10,10,0,0,1,9.95,9h1.5a1.5,1.5,0,0,1,0,3h-1.5a9.94,9.94,0,0,1-1.33,4.67,1.5,1.5,0,0,1-2.68,0,6.47,6.47,0,0,0-10.87,0,1.5,1.5,0,0,1-2.68,0A9.94,9.94,0,0,1,3.5,14H2a1.5,1.5,0,0,1,0-3H3.5A10,10,0,0,1,12,2Z"></path>
-            <path d="M8,11h0a1,1,0,0,0,0,2h0"></path>
-            <path d="M12,11h0a1,1,0,0,0,0,2h0"></path>
-            <path d="M16,11h0a1,1,0,0,0,0,2h0"></path>
+            <path d="M21 2H3v16h5v4l4-4h5l4-4V2h-5z"></path>
+            <path d="M10 6v6"></path>
+            <path d="M14 6v6"></path>
           </svg>
         </button>
       </div>
     </header>
 
-    <div class="body" :class="{ 'with-panel': showSettings || showAnnotations || showAIChat || showDictionary }">
-      <div class="content-wrapper" :style="{ marginRight: (showSettings || showAnnotations || showAIChat || showDictionary) ? sidebarWidth + 'px' : '0' }">
+    <div class="body" :class="{ 'with-panel': showSettings || showAnnotations || showAIChat || showDictionary || splitPanelMode }">
+      <div class="content-wrapper" :style="{ marginRight: (showSettings || showAnnotations || showAIChat || showDictionary || splitPanelMode) ? sidebarWidth + 'px' : '0' }">
         <div v-if="isEditing" class="editor">
           <textarea
             v-model="editContent"
@@ -336,7 +426,7 @@ function saveEditAnnotationWrapper() {
           ></textarea>
         </div>
         <article v-else class="article-container">
-          <h1 class="print-title">{{ article.title }}</h1>
+          <h1 class="article-title">{{ article.title }}</h1>
           <div
             ref="readerContent"
             class="content"
@@ -348,6 +438,13 @@ function saveEditAnnotationWrapper() {
               '--ann-font-size': settings.annotationFontSize + 'px'
             }"
             @mouseup="handleTextSelection"
+            @contextmenu="handleContextMenu"
+            @touchstart="handleTouchStart"
+            @touchend="(e) => {
+              handleTouchEnd();
+              handleContentClickWrapper(e);
+            }"
+            @touchmove="handleTouchMove"
             v-html="getFormattedContentWrapper()"
             @click="handleContentClickWrapper"
           ></div>
@@ -432,7 +529,7 @@ function saveEditAnnotationWrapper() {
       </Transition>
 
       <Transition name="panel">
-        <div v-if="showAnnotations && !isEditing" class="panel" :style="{ width: sidebarWidth + 'px' }">
+        <div v-if="showAnnotations && !isEditing && !splitPanelMode" class="panel" :style="{ width: sidebarWidth + 'px' }">
           <div class="panel-header">
             <span>注释 ({{ article.annotations.length }})</span>
             <button class="panel-close" @click="showAnnotations = false">
@@ -447,7 +544,7 @@ function saveEditAnnotationWrapper() {
             <button 
               class="ann-mode-btn" 
               :class="{ active: annotationLockMode === 'normal' }" 
-              @click="setAnnotationMode('normal')"
+              @click="setAnnotationMode('normal', article)"
               title="正常模式"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -458,7 +555,7 @@ function saveEditAnnotationWrapper() {
             <button 
               class="ann-mode-btn" 
               :class="{ active: annotationLockMode === 'locked' }" 
-              @click="setAnnotationMode('locked')"
+              @click="setAnnotationMode('locked', article)"
               title="锁定展开"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -469,7 +566,7 @@ function saveEditAnnotationWrapper() {
             <button 
               class="ann-mode-btn" 
               :class="{ active: annotationLockMode === 'all-expanded' }" 
-              @click="setAnnotationMode('all-expanded')"
+              @click="setAnnotationMode('all-expanded', article)"
               title="全部展开"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -482,7 +579,7 @@ function saveEditAnnotationWrapper() {
             <button 
               class="ann-mode-btn" 
               :class="{ active: annotationLockMode === 'all-collapsed' }" 
-              @click="setAnnotationMode('all-collapsed')"
+              @click="setAnnotationMode('all-collapsed', article)"
               title="全部折叠"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -549,17 +646,9 @@ function saveEditAnnotationWrapper() {
                           <path d="M19,6v14a2,2,0,0,1-2,2H7a2,2,0,0,1-2-2V6m3,0V4a2,2,0,0,1,2-2h4a2,2,0,0,1,2,2v2"></path>
                         </svg>
                       </button>
-                      <button class="btn-icon sm ai" @click="askAIAboutAnnotation(ann.text)">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <path d="M12,2a10,10,0,0,1,9.95,9h1.5a1.5,1.5,0,0,1,0,3h-1.5a9.94,9.94,0,0,1-1.33,4.67,1.5,1.5,0,0,1-2.68,0,6.47,6.47,0,0,0-10.87,0,1.5,1.5,0,0,1-2.68,0A9.94,9.94,0,0,1,3.5,14H2a1.5,1.5,0,0,1,0-3H3.5A10,10,0,0,1,12,2Z"></path>
-                          <path d="M8,11h0a1,1,0,0,0,0,2h0"></path>
-                          <path d="M12,11h0a1,1,0,0,0,0,2h0"></path>
-                          <path d="M16,11h0a1,1,0,0,0,0,2h0"></path>
-                        </svg>
-                      </button>
                     </div>
                   </div>
-                  <p class="ann-content">{{ ann.content }}</p>
+                  <p class="ann-content" v-html="renderMarkdown(ann.content)"></p>
                 </div>
               </div>
             </div>
@@ -642,7 +731,290 @@ function saveEditAnnotationWrapper() {
       </Transition>
 
       <Transition name="panel">
-        <div v-if="showAIChat" class="panel" :style="{ width: sidebarWidth + 'px' }">
+        <div v-if="splitPanelMode" class="panel split-panel" :style="{ width: sidebarWidth + 'px' }">
+          <div class="resize-handle" @mousedown="startResize"></div>
+          
+          <div class="split-left" :style="{ width: splitRatio + '%' }">
+            <div class="panel-header split-header">
+              <span>注释 ({{ article.annotations.length }})</span>
+              <button class="panel-close" @click="showAnnotations = false; splitPanelMode = false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+            <div class="split-body">
+              <div v-if="selectedText && !isSharedArticle" class="new-ann">
+                <div class="new-ann-header">
+                  <span class="new-ann-label">选中</span>
+                  <span class="new-ann-text">"{{ selectedText }}"</span>
+                </div>
+                
+                <div v-if="dictionaryEntries.length > 0" class="dict-suggestions">
+                  <div class="dict-suggestions-title">已有释义 (点击选择)</div>
+                  <div class="dict-suggestions-list">
+                    <button 
+                      v-for="(entry, idx) in dictionaryEntries" 
+                      :key="idx"
+                      class="dict-suggestion-item"
+                      @click="annotationContent = entry.content"
+                    >
+                      <span class="dict-suggestion-content">{{ entry.content }}</span>
+                      <span class="dict-suggestion-source">——《{{ entry.articleTitle }}》</span>
+                    </button>
+                  </div>
+                </div>
+                
+                <textarea v-model="annotationContent" placeholder="注释内容..." rows="2"></textarea>
+                <div v-if="annotationError" class="error">{{ annotationError }}</div>
+                <div class="new-ann-actions">
+                  <button class="btn-text" @click="selectedText = ''; annotationContent = ''">取消</button>
+                  <button class="btn-primary sm" @click="createAnnotation" :disabled="!annotationContent.trim()">添加</button>
+                </div>
+              </div>
+              <div class="ann-list">
+                <div class="ann-item" v-for="ann in article.annotations" :key="ann.id">
+                  <div v-if="editingAnnotationId === ann.id" class="ann-edit">
+                    <div class="ann-ref">"{{ ann.text }}"</div>
+                    <textarea v-model="editingAnnotationContent" rows="2"></textarea>
+                    <div class="ann-edit-actions">
+                      <button class="btn-text" @click="cancelEditAnnotation">取消</button>
+                      <button class="btn-primary sm" @click="saveEditAnnotationWrapper" :disabled="!editingAnnotationContent.trim()">保存</button>
+                    </div>
+                  </div>
+                  <div v-else>
+                    <div class="ann-header">
+                      <span class="ann-text">"{{ ann.text }}"</span>
+                      <div v-if="!isSharedArticle" class="ann-actions">
+                        <button class="btn-icon sm" @click="startEditAnnotation(ann)">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M11,4H4A2,2,0,0,0,2,6V20a2,2,0,0,0,2,2H18a2,2,0,0,0,2-2V13"></path>
+                            <path d="M18.5,2.5a2.121,2.121,0,0,1,3,3L12,15,8,16l1-4Z"></path>
+                          </svg>
+                        </button>
+                        <button class="btn-icon sm delete" @click="removeAnnotation(ann.id)">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="3,6 5,6 21,6"></polyline>
+                            <path d="M19,6v14a2,2,0,0,1-2,2H7a2,2,0,0,1-2-2V6m3,0V4a2,2,0,0,1,2-2h4a2,2,0,0,1,2,2v2"></path>
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                    <p class="ann-content" v-html="renderMarkdown(ann.content)"></p>
+                  </div>
+                </div>
+              </div>
+              <div v-if="article.annotations.length === 0 && !selectedText" class="empty">
+                <p>暂无注释</p>
+              </div>
+            </div>
+          </div>
+          
+          <div class="split-divider-v" @mousedown="startSplitResize"></div>
+          
+          <div class="split-right" :style="{ width: (100 - splitRatio) + '%' }">
+            <div class="panel-header split-header">
+              <div class="chat-header-left">
+                <button class="btn-icon" @click="showSessionManager = !showSessionManager" title="会话管理">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="3" y1="12" x2="21" y2="12"></line>
+                    <line x1="3" y1="6" x2="21" y2="6"></line>
+                    <line x1="3" y1="18" x2="21" y2="18"></line>
+                  </svg>
+                </button>
+                <span>{{ getCurrentSession()?.title || '文言文助手' }}</span>
+              </div>
+              <button class="panel-close" @click="showAIChat = false; splitPanelMode = false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+            
+            <!-- 会话管理界面 -->
+            <div v-if="showSessionManager" class="session-manager">
+              <div class="session-manager-header">
+                <span>会话管理</span>
+                <button class="btn-icon sm" @click="showSessionManager = false">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                </button>
+              </div>
+              <div class="session-list">
+                <div 
+                  v-for="session in chatSessions" 
+                  :key="session.id"
+                  :class="['session-item', { active: session.id === currentSessionId }]"
+                >
+                  <div class="session-info">
+                    <div class="session-title" @click="currentSessionId = session.id; showSessionManager = false">
+                      {{ session.title }}
+                      <span v-if="session.isDefault" class="session-badge">默认</span>
+                    </div>
+                    <div class="session-meta">
+                      {{ new Date(session.updatedAt).toLocaleString() }}
+                    </div>
+                  </div>
+                  <div class="session-actions">
+                    <button class="btn-icon sm" @click="editingSessionId = session.id; editingSessionTitle = session.title" title="重命名">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M11,4H4A2,2,0,0,0,2,6V20a2,2,0,0,0,2,2H18a2,2,0,0,0,2-2V13"></path>
+                        <path d="M18.5,2.5a2.121,2.121,0,0,1,3,3L12,15,8,16l1-4Z"></path>
+                      </svg>
+                    </button>
+                    <button class="btn-icon sm delete" @click="deleteChatSession(session.id)" title="删除">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="3,6 5,6 21,6"></polyline>
+                        <path d="M19,6v14a2,2,0,0,1-2,2H7a2,2,0,0,1-2-2V6m3,0V4a2,2,0,0,1,2-2h4a2,2,0,0,1,2,2v2"></path>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div class="session-manager-footer">
+                <input 
+                  v-model="editingSessionTitle"
+                  placeholder="输入会话名称"
+                  class="session-title-input"
+                />
+                <div class="session-manager-actions">
+                  <button class="btn-text" @click="editingSessionId = null; editingSessionTitle = ''">取消</button>
+                  <button class="btn-primary sm" @click="editingSessionId ? renameChatSession(editingSessionId, editingSessionTitle) : createChatSession(editingSessionTitle); editingSessionId = null; editingSessionTitle = ''">
+                    {{ editingSessionId ? '保存' : '创建' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            <!-- 聊天界面 -->
+            <div v-else class="split-body">
+              <div class="messages">
+                <div 
+                  v-for="(msg, index) in getCurrentSession()?.messages || []" 
+                  :key="msg.id"
+                  :class="['message', msg.role]"
+                >
+                  <div class="message-avatar">
+                    <span v-if="msg.role === 'user'">用户</span>
+                    <span v-else>助手</span>
+                  </div>
+                  <div class="message-body">
+                    <!-- 思考部分 -->
+                    <div v-if="msg.think && msg.role === 'assistant'" class="think-container">
+                      <button class="think-toggle" @click="expandedMessages.has(index) ? expandedMessages.delete(index) : expandedMessages.add(index)">
+                        <svg v-if="!expandedMessages.has(index)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <polyline points="9,18 15,12 9,6"></polyline>
+                        </svg>
+                        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <polyline points="15,18 9,12 15,6"></polyline>
+                        </svg>
+                        <span>思考过程</span>
+                      </button>
+                      <div v-if="expandedMessages.has(index)" class="think-content">
+                        {{ msg.think }}
+                      </div>
+                    </div>
+                    <!-- 输出部分 -->
+                    <div class="message-content" v-html="renderMarkdown(msg.content)"></div>
+                    <!-- 时间戳 -->
+                    <div class="message-timestamp">{{ new Date(msg.timestamp).toLocaleTimeString() }}</div>
+                  </div>
+                </div>
+                
+                <div v-if="streaming" class="message assistant">
+                  <div class="message-avatar">助手</div>
+                  <div class="message-body">
+                    <!-- 流式思考部分 -->
+                    <div v-if="streamThink && !streamHasThink" class="think-container streaming">
+                      <div class="think-content">
+                        {{ streamThink }}
+                      </div>
+                    </div>
+                    <!-- 流式输出部分 -->
+                    <div class="message-content streaming" v-html="renderMarkdown(streamContent)"></div>
+                  </div>
+                </div>
+                
+                <div v-if="loading && !streaming" class="loading-message">
+                  <div class="loading-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
+                  <span>正在思考...</span>
+                </div>
+                
+                <div v-if="error" class="error-message">{{ error }}</div>
+              </div>
+            </div>
+            <div class="panel-footer">
+              <textarea 
+                v-model="inputMessage"
+                placeholder="输入你的问题，例如：'学而时习之，不亦说乎'是什么意思？"
+                rows="2"
+                @keydown="(e) => handleKeyDown(e, chatSession)"
+                :disabled="loading || streaming"
+              ></textarea>
+              <div class="footer-actions">
+                <div class="export-menu">
+                  <button class="btn-text" title="导出聊天记录">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M21,15v4a2,2,0,0,1-2,2H5a2,2,0,0,1-2-2V9a2,2,0,0,1,2-2h4"></path>
+                      <polyline points="17,8 21,4 21,8"></polyline>
+                      <line x1="12" y1="12" x2="21" y2="4"></line>
+                    </svg>
+                    <div class="export-dropdown">
+                      <button class="export-option" @click="exportChatSession('txt')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M14,2H6A2,2,0,0,0,4,4V20a2,2,0,0,0,2,2H18a2,2,0,0,0,2-2V8Z"></path>
+                          <polyline points="14,2 14,8 20,8"></polyline>
+                          <line x1="16" y1="13" x2="8" y2="13"></line>
+                          <line x1="16" y1="17" x2="8" y2="17"></line>
+                          <polyline points="10,9 9,9 8,9"></polyline>
+                        </svg>
+                        <span>导出为TXT</span>
+                      </button>
+                      <button class="export-option" @click="exportChatSession('json')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M12,20a2,2,0,0,1-2-2V6a2,2,0,0,1,2-2h5a2,2,0,0,1,2,2v6a2,2,0,0,1-2,2h-5a2,2,0,0,0-2,2v4Z"></path>
+                          <path d="M5,10a2,2,0,0,1-2-2V4a2,2,0,0,1,2-2h5a2,2,0,0,1,2,2v4a2,2,0,0,1-2,2Z"></path>
+                        </svg>
+                        <span>导出为JSON</span>
+                      </button>
+                    </div>
+                  </button>
+                </div>
+                <button class="btn-text" title="清空上下文">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3,6 5,6 21,6"></polyline>
+                    <path d="M19,6v14a2,2,0,0,1-2,2H7a2,2,0,0,1-2-2V6m3,0V4a2,2,0,0,1,2-2h4a2,2,0,0,1,2,2v2"></path>
+                  </svg>
+                </button>
+                <button 
+                  class="btn-primary" 
+                  @click="sendMessage(chatSession)"
+                  :disabled="isEmptyInput || loading || streaming"
+                >
+                  <svg v-if="!loading && !streaming" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22,2 15,22 11,13 2,9 22,2"></polygon>
+                  </svg>
+                  <div v-else class="loading-spinner">
+                    <div class="spinner"></div>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+
+      <Transition name="panel">
+        <div v-if="showAIChat && !splitPanelMode" class="panel" :style="{ width: sidebarWidth + 'px' }">
           <div class="panel-header">
             <div class="chat-header-left">
               <button class="btn-icon" @click="showSessionManager = !showSessionManager" title="会话管理">
@@ -749,7 +1121,7 @@ function saveEditAnnotationWrapper() {
                     </div>
                   </div>
                   <!-- 输出部分 -->
-                  <div class="message-content">{{ msg.content }}</div>
+                  <div class="message-content" v-html="renderMarkdown(msg.content)"></div>
                   <!-- 时间戳 -->
                   <div class="message-timestamp">{{ new Date(msg.timestamp).toLocaleTimeString() }}</div>
                 </div>
@@ -765,7 +1137,7 @@ function saveEditAnnotationWrapper() {
                     </div>
                   </div>
                   <!-- 流式输出部分 -->
-                  <div class="message-content streaming">{{ streamContent }}</div>
+                  <div class="message-content streaming" v-html="renderMarkdown(streamContent)"></div>
                 </div>
               </div>
               
@@ -875,18 +1247,14 @@ function saveEditAnnotationWrapper() {
           </button>
           <button class="menu-item" @click="askAIAboutSelection(); hideContextMenu()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12,2a10,10,0,0,1,9.95,9h1.5a1.5,1.5,0,0,1,0,3h-1.5a9.94,9.94,0,0,1-1.33,4.67,1.5,1.5,0,0,1-2.68,0,6.47,6.47,0,0,0-10.87,0,1.5,1.5,0,0,1-2.68,0A9.94,9.94,0,0,1,3.5,14H2a1.5,1.5,0,0,1,0-3H3.5A10,10,0,0,1,12,2Z"></path>
-              <path d="M8,11h0a1,1,0,0,0,0,2h0"></path>
-              <path d="M12,11h0a1,1,0,0,0,0,2h0"></path>
-              <path d="M16,11h0a1,1,0,0,0,0,2h0"></path>
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
             </svg>
             <span>问AI</span>
           </button>
           <button class="menu-item" @click="handleAISelectionAnnotationWrapper(); hideContextMenu()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12,2a10,10,0,0,1,9.95,9h1.5a1.5,1.5,0,0,1,0,3h-1.5a9.94,9.94,0,0,1-1.33,4.67,1.5,1.5,0,0,1-2.68,0,6.47,6.47,0,0,0-10.87,0,1.5,1.5,0,0,1-2.68,0A9.94,9.94,0,0,1,3.5,14H2a1.5,1.5,0,0,1,0-3H3.5A10,10,0,0,1,12,2Z"></path>
-              <path d="M12,16v-4"></path>
-              <path d="M12,8h.01"></path>
+              <polyline points="4 17 10 11 4 5"></polyline>
+              <line x1="12" y1="19" x2="20" y2="19"></line>
             </svg>
             <span>AI注释</span>
           </button>
@@ -961,7 +1329,7 @@ function saveEditAnnotationWrapper() {
 <style scoped>
 .reader {
   min-height: 100vh;
-  background: #f8f9fa;
+  background: var(--bg-secondary);
   display: flex;
   flex-direction: column;
 }
@@ -969,10 +1337,11 @@ function saveEditAnnotationWrapper() {
 .header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.75rem;
   padding: 0.75rem 1rem;
-  background: white;
-  border-bottom: 1px solid #eee;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
   position: sticky;
   top: 0;
   z-index: 50;
@@ -988,7 +1357,7 @@ function saveEditAnnotationWrapper() {
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  color: #666;
+  color: var(--text-secondary);
   transition: all 0.15s;
 }
 
@@ -998,15 +1367,15 @@ function saveEditAnnotationWrapper() {
 }
 
 .back-btn:hover {
-  background: #f0f0f0;
-  color: #2dd4bf;
+  background: var(--bg-tertiary);
+  color: var(--primary-color);
 }
 
 .title {
   flex: 1;
   font-size: 0.9375rem;
   font-weight: 500;
-  color: #1a1a1a;
+  color: var(--text-primary);
   margin: 0;
   white-space: nowrap;
   overflow: hidden;
@@ -1021,8 +1390,8 @@ function saveEditAnnotationWrapper() {
 
 .btn-primary {
   padding: 0.375rem 0.75rem;
-  background: #2dd4bf;
-  color: white;
+  background: var(--primary-color);
+  color: var(--bg-primary);
   border: none;
   border-radius: 6px;
   font-size: 0.8125rem;
@@ -1032,7 +1401,7 @@ function saveEditAnnotationWrapper() {
 }
 
 .btn-primary:hover {
-  background: #14b8a6;
+  background: var(--primary-color);
 }
 
 .btn-primary:disabled {
@@ -1048,20 +1417,20 @@ function saveEditAnnotationWrapper() {
 .btn-text {
   padding: 0.375rem 0.5rem;
   background: transparent;
-  color: #666;
+  color: var(--text-secondary);
   border: none;
   font-size: 0.8125rem;
   cursor: pointer;
 }
 
 .btn-text:hover {
-  color: #333;
+  color: var(--text-primary);
 }
 
 .shared-badge {
   padding: 0.25rem 0.5rem;
-  background: #f0fdfa;
-  color: #14b8a6;
+  background: var(--primary-50);
+  color: var(--primary-color);
   font-size: 0.6875rem;
   border-radius: 4px;
   margin-right: 0.5rem;
@@ -1077,7 +1446,7 @@ function saveEditAnnotationWrapper() {
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  color: #666;
+  color: var(--text-secondary);
   position: relative;
   transition: all 0.15s;
 }
@@ -1089,12 +1458,8 @@ function saveEditAnnotationWrapper() {
 
 .btn-icon:hover,
 .btn-icon.active {
-  background: #f0fdfa;
-  color: #2dd4bf;
-}
-
-.print-title {
-  display: none;
+  background: var(--primary-50);
+  color: var(--primary-color);
 }
 
 .btn-icon.sm {
@@ -1108,8 +1473,8 @@ function saveEditAnnotationWrapper() {
 }
 
 .btn-icon.delete:hover {
-  background: #fef2f2;
-  color: #dc2626;
+  background: rgba(239, 68, 68, 0.05);
+  color: var(--error-color);
 }
 
 .badge {
@@ -1118,8 +1483,8 @@ function saveEditAnnotationWrapper() {
   right: 2px;
   min-width: 14px;
   height: 14px;
-  background: #f59e0b;
-  color: white;
+  background: var(--warning-color);
+  color: var(--bg-primary);
   font-size: 9px;
   font-weight: 600;
   border-radius: 7px;
@@ -1161,7 +1526,7 @@ function saveEditAnnotationWrapper() {
   font-family: inherit;
   resize: none;
   line-height: 1.8;
-  background: white;
+  background: var(--bg-primary);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
@@ -1173,19 +1538,38 @@ function saveEditAnnotationWrapper() {
 .article-container {
   max-width: 800px;
   margin: 0 auto;
-  background: white;
-  border-radius: 12px;
+  background: var(--bg-primary);
+  border-radius: 6px;
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.02);
 }
 
 .content {
-  padding: 2rem 2.5rem;
+  padding: 0.5rem 2.5rem 2rem 2.5rem;
   white-space: pre-wrap;
   word-break: break-all;
-  color: #1a1a1a;
+  color: var(--text-primary);
   user-select: text;
   line-height: 1.8;
+}
+
+.content :deep(.article-title) {
+  font-family: 'Source Han Serif CN', 'Noto Serif SC', serif;
+  font-size: 1.25em;
+  font-weight: 600;
+  text-align: center;
+  margin: 0 0 1em 0;
+  color: var(--text-primary);
+}
+
+.article-title {
+  font-family: 'Source Han Serif CN', 'Noto Serif SC', serif;
+  font-size: 1.25em;
+  font-weight: 600;
+  text-align: center;
+  margin: 1.5em 0 0.5em 0;
+  padding: 0 2.5rem;
+  color: var(--text-primary);
 }
 
 .content :deep(strong) {
@@ -1194,7 +1578,7 @@ function saveEditAnnotationWrapper() {
 
 .content :deep(u) {
   text-decoration: underline;
-  text-decoration-color: #2dd4bf;
+  text-decoration-color: var(--primary-color);
   text-decoration-thickness: 2px;
   text-underline-offset: 3px;
 }
@@ -1232,15 +1616,15 @@ function saveEditAnnotationWrapper() {
   margin-left: 1px;
   font-size: var(--ann-font-size, 14px);
   vertical-align: sub;
-  color: #f59e0b;
+  color: var(--warning-color);
 }
 
 .content :deep(.ann-note.ann-depth-1) {
-  color: #3b82f6;
+  color: var(--info-color);
 }
 
 .content :deep(.ann-note.ann-depth-2) {
-  color: #a855f7;
+  color: var(--info-color);
 }
 
 .content :deep(.ann-note::before) {
@@ -1265,18 +1649,101 @@ function saveEditAnnotationWrapper() {
   top: 49px;
   bottom: 0;
   width: 280px;
-  background: white;
-  border-left: 1px solid #eee;
+  background: var(--bg-primary);
+  border-left: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   z-index: 40;
+}
+
+.split-panel {
+  display: flex;
+  flex-direction: row;
+}
+
+.split-left,
+.split-right {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.split-header {
+  flex-shrink: 0;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+}
+
+.split-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+}
+
+.split-body.messages {
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.split-footer {
+  flex-shrink: 0;
+  display: flex;
+  gap: 0.375rem;
+  padding: 0.375rem 0.5rem;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.split-footer textarea {
+  flex: 1;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  resize: none;
+  min-height: 28px;
+  max-height: 60px;
+}
+
+.split-footer textarea:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+.split-footer .btn-primary {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.split-footer .btn-primary svg {
+  width: 14px;
+  height: 14px;
+}
+
+.split-divider-v {
+  width: 4px;
+  background: var(--border-color);
+  cursor: col-resize;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.split-divider-v:hover {
+  background: var(--primary-color);
 }
 
 .ann-controls {
   display: flex;
   gap: 0.25rem;
   padding: 0.5rem 1rem;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .ann-mode-btn {
@@ -1285,11 +1752,11 @@ function saveEditAnnotationWrapper() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f8f9fa;
+  background: var(--bg-secondary);
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  color: #999;
+  color: var(--text-tertiary);
   transition: all 0.15s;
 }
 
@@ -1299,13 +1766,13 @@ function saveEditAnnotationWrapper() {
 }
 
 .ann-mode-btn:hover {
-  background: #f0f0f0;
-  color: #666;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
 }
 
 .ann-mode-btn.active {
-  background: #f0fdfa;
-  color: #2dd4bf;
+  background: var(--primary-50);
+  color: var(--primary-color);
 }
 
 .panel-header {
@@ -1313,10 +1780,10 @@ function saveEditAnnotationWrapper() {
   justify-content: space-between;
   align-items: center;
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-color);
   font-size: 0.8125rem;
   font-weight: 500;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .panel-close {
@@ -1329,7 +1796,7 @@ function saveEditAnnotationWrapper() {
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .panel-close svg {
@@ -1338,8 +1805,8 @@ function saveEditAnnotationWrapper() {
 }
 
 .panel-close:hover {
-  background: #f0f0f0;
-  color: #333;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .panel-body {
@@ -1358,11 +1825,11 @@ function saveEditAnnotationWrapper() {
   align-items: center;
   margin-bottom: 0.375rem;
   font-size: 0.75rem;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .setting-value {
-  color: #2dd4bf;
+  color: var(--primary-color);
   font-weight: 500;
 }
 
@@ -1370,7 +1837,7 @@ function saveEditAnnotationWrapper() {
   width: 100%;
   height: 4px;
   border-radius: 2px;
-  background: #e5e5e5;
+  background: var(--border-color);
   outline: none;
   -webkit-appearance: none;
 }
@@ -1380,7 +1847,7 @@ function saveEditAnnotationWrapper() {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #2dd4bf;
+  background: var(--primary-color);
   cursor: pointer;
 }
 
@@ -1389,23 +1856,23 @@ function saveEditAnnotationWrapper() {
   justify-content: space-between;
   align-items: center;
   padding: 0.5rem 0.625rem;
-  background: #f8f9fa;
+  background: var(--bg-secondary);
   border-radius: 6px;
   font-size: 0.75rem;
   cursor: pointer;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .font-select svg {
   width: 14px;
   height: 14px;
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .font-dropdown {
   margin-top: 0.375rem;
-  background: white;
-  border: 1px solid #eee;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   max-height: 180px;
   overflow-y: auto;
@@ -1418,7 +1885,7 @@ function saveEditAnnotationWrapper() {
 .font-group-title {
   padding: 0.25rem 0.625rem;
   font-size: 0.625rem;
-  color: #999;
+  color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -1427,36 +1894,36 @@ function saveEditAnnotationWrapper() {
   padding: 0.375rem 0.625rem;
   font-size: 0.75rem;
   cursor: pointer;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .font-option:hover {
-  background: #f8f9fa;
+  background: var(--bg-secondary);
 }
 
 .font-option.active {
-  background: #f0fdfa;
-  color: #2dd4bf;
+  background: var(--primary-50);
+  color: var(--primary-color);
 }
 
 .reset-btn {
   width: 100%;
   padding: 0.5rem;
-  background: #f8f9fa;
+  background: var(--bg-secondary);
   border: none;
   border-radius: 6px;
   font-size: 0.75rem;
-  color: #666;
+  color: var(--text-secondary);
   cursor: pointer;
   margin-top: 0.5rem;
 }
 
 .reset-btn:hover {
-  background: #f0f0f0;
+  background: var(--bg-tertiary);
 }
 
 .new-ann {
-  background: #f0fdfa;
+  background: var(--primary-50);
   border-radius: 6px;
   padding: 0.625rem;
   margin-bottom: 0.75rem;
@@ -1468,7 +1935,7 @@ function saveEditAnnotationWrapper() {
 
 .new-ann-label {
   font-size: 0.625rem;
-  color: #2dd4bf;
+  color: var(--primary-color);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -1476,21 +1943,21 @@ function saveEditAnnotationWrapper() {
 .new-ann-text {
   display: block;
   font-size: 0.75rem;
-  color: #333;
+  color: var(--text-primary);
   font-weight: 500;
   margin-top: 0.125rem;
 }
 
 .dict-suggestions {
   margin-bottom: 0.5rem;
-  background: white;
+  background: var(--bg-primary);
   border-radius: 4px;
   padding: 0.5rem;
 }
 
 .dict-suggestions-title {
   font-size: 0.625rem;
-  color: #2dd4bf;
+  color: var(--primary-color);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 0.375rem;
@@ -1509,7 +1976,7 @@ function saveEditAnnotationWrapper() {
   flex-direction: column;
   align-items: flex-start;
   padding: 0.375rem 0.5rem;
-  background: #f8f9fa;
+  background: var(--bg-secondary);
   border: 1px solid transparent;
   border-radius: 4px;
   cursor: pointer;
@@ -1519,26 +1986,26 @@ function saveEditAnnotationWrapper() {
 }
 
 .dict-suggestion-item:hover {
-  background: #f0fdfa;
-  border-color: #2dd4bf;
+  background: var(--primary-50);
+  border-color: var(--primary-color);
 }
 
 .dict-suggestion-content {
   font-size: 0.75rem;
-  color: #333;
+  color: var(--text-primary);
   line-height: 1.4;
 }
 
 .dict-suggestion-source {
   font-size: 0.625rem;
-  color: #999;
+  color: var(--text-tertiary);
   margin-top: 0.125rem;
 }
 
 .new-ann textarea {
   width: 100%;
   padding: 0.375rem 0.5rem;
-  border: 1px solid #e5e5e5;
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   font-size: 0.75rem;
   font-family: inherit;
@@ -1548,11 +2015,11 @@ function saveEditAnnotationWrapper() {
 
 .new-ann textarea:focus {
   outline: none;
-  border-color: #2dd4bf;
+  border-color: var(--primary-color);
 }
 
 .new-ann .error {
-  color: #dc2626;
+  color: var(--error-color);
   font-size: 0.6875rem;
   margin-top: 0.25rem;
 }
@@ -1571,7 +2038,7 @@ function saveEditAnnotationWrapper() {
 }
 
 .ann-item {
-  background: #f8f9fa;
+  background: var(--bg-secondary);
   border-radius: 6px;
   padding: 0.625rem;
 }
@@ -1586,7 +2053,7 @@ function saveEditAnnotationWrapper() {
 .ann-text {
   font-size: 0.75rem;
   font-weight: 500;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .ann-actions {
@@ -1595,27 +2062,54 @@ function saveEditAnnotationWrapper() {
 }
 
 .btn-icon.sm.ai {
-  color: #0284c7;
+  color: var(--info-color);
 }
 
 .ann-content {
   margin: 0;
   font-size: 0.75rem;
-  color: #666;
+  color: var(--text-secondary);
   line-height: 1.5;
+}
+
+.ann-content :deep(code) {
+  background: rgba(0, 0, 0, 0.05);
+  padding: 0.1em 0.3em;
+  border-radius: 2px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 0.9em;
+}
+
+.ann-content :deep(strong) {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ann-content :deep(em) {
+  font-style: italic;
+}
+
+.ann-content :deep(p) {
+  margin: 0.3em 0;
+}
+
+.ann-content :deep(ul),
+.ann-content :deep(ol) {
+  margin: 0.3em 0;
+  padding-left: 1.2em;
 }
 
 .ann-edit .ann-ref {
   font-size: 0.75rem;
   font-weight: 500;
-  color: #333;
+  color: var(--text-primary);
   margin-bottom: 0.375rem;
 }
 
 .ann-edit textarea {
   width: 100%;
   padding: 0.375rem 0.5rem;
-  border: 1px solid #e5e5e5;
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   font-size: 0.75rem;
   font-family: inherit;
@@ -1626,7 +2120,7 @@ function saveEditAnnotationWrapper() {
 
 .ann-edit textarea:focus {
   outline: none;
-  border-color: #2dd4bf;
+  border-color: var(--primary-color);
 }
 
 .ann-edit-actions {
@@ -1638,7 +2132,7 @@ function saveEditAnnotationWrapper() {
 .empty {
   text-align: center;
   padding: 2rem;
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .empty p {
@@ -1654,7 +2148,7 @@ function saveEditAnnotationWrapper() {
 .context-menu {
   position: fixed;
   z-index: 1000;
-  background: white;
+  background: var(--bg-primary);
   border-radius: 8px;
   padding: 0.375rem;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
@@ -1672,39 +2166,39 @@ function saveEditAnnotationWrapper() {
   border-radius: 4px;
   cursor: pointer;
   font-size: 0.8125rem;
-  color: #333;
+  color: var(--text-primary);
   text-align: left;
 }
 
 .menu-item svg {
   width: 14px;
   height: 14px;
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .menu-item:hover {
-  background: #f8f9fa;
+  background: var(--bg-secondary);
 }
 
 .menu-item:hover svg {
-  color: #2dd4bf;
+  color: var(--primary-color);
 }
 
 .menu-item.highlight {
-  color: #f59e0b;
+  color: var(--warning-color);
 }
 
 .menu-item.highlight svg {
-  color: #f59e0b;
+  color: var(--warning-color);
 }
 
 .menu-item.highlight:hover {
-  background: #fffbeb;
+  background: rgba(245, 158, 11, 0.1);
 }
 
 .menu-divider {
   height: 1px;
-  background: #eee;
+  background: var(--border-color);
   margin: 0.25rem 0;
 }
 
@@ -1784,7 +2278,7 @@ function saveEditAnnotationWrapper() {
     max-width: none;
     max-height: 70vh;
     border-left: none;
-    border-top: 1px solid #eee;
+    border-top: 1px solid var(--border-color);
     border-radius: 16px 16px 0 0;
     padding-bottom: env(safe-area-inset-bottom);
     transform: translateY(100%);
@@ -1807,7 +2301,7 @@ function saveEditAnnotationWrapper() {
   }
 
   .article-container {
-    border-radius: 8px;
+    border-radius: 4px;
   }
 
   .content {
@@ -1844,22 +2338,22 @@ function saveEditAnnotationWrapper() {
 
 /* 全局滚动条样式 */
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 4px;
+    height: 4px;
   }
 
   ::-webkit-scrollbar-track {
-    background: #f1f1f1;
-    border-radius: 3px;
+    background: transparent;
+    border-radius: 2px;
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #c1c1c1;
-    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 2px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: #a8a8a8;
+    background: rgba(0, 0, 0, 0.25);
   }
 
   /* 侧边栏宽度调节样式 */
@@ -1883,14 +2377,14 @@ function saveEditAnnotationWrapper() {
     display: flex;
     align-items: center;
     padding: 0.75rem 1rem;
-    background: #f8f9fa;
-    border-bottom: 1px solid #eee;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
   }
 
   .search-icon {
     width: 18px;
     height: 18px;
-    color: #999;
+    color: var(--text-tertiary);
     margin-right: 0.5rem;
     flex-shrink: 0;
   }
@@ -1901,11 +2395,11 @@ function saveEditAnnotationWrapper() {
     background: transparent;
     font-size: 0.9375rem;
     outline: none;
-    color: #1a1a1a;
+    color: var(--text-primary);
   }
 
   .search-box input::placeholder {
-    color: #999;
+    color: var(--text-tertiary);
   }
 
   .stats {
@@ -1913,8 +2407,8 @@ function saveEditAnnotationWrapper() {
     gap: 1rem;
     padding: 0.5rem 1rem;
     font-size: 0.75rem;
-    color: #999;
-    border-bottom: 1px solid #eee;
+    color: var(--text-tertiary);
+    border-bottom: 1px solid var(--border-color);
   }
 
   .result-list,
@@ -1925,7 +2419,7 @@ function saveEditAnnotationWrapper() {
   .result-item,
   .entry-item {
     padding: 0.75rem 1rem;
-    border-bottom: 1px solid #f0f0f0;
+    border-bottom: 1px solid var(--bg-tertiary);
   }
 
   .result-item:last-child,
@@ -1937,15 +2431,15 @@ function saveEditAnnotationWrapper() {
   .entry-text {
     font-size: 0.9375rem;
     font-weight: 500;
-    color: #1a1a1a;
+    color: var(--text-primary);
     margin-bottom: 0.375rem;
   }
 
   .entry-count {
     display: inline-block;
     font-size: 0.625rem;
-    color: #2dd4bf;
-    background: #f0fdfa;
+    color: var(--primary-color);
+    background: var(--primary-50);
     padding: 0.125rem 0.375rem;
     border-radius: 4px;
     margin-left: 0.5rem;
@@ -1959,56 +2453,56 @@ function saveEditAnnotationWrapper() {
 
   .meaning {
     font-size: 0.8125rem;
-    color: #666;
+    color: var(--text-secondary);
     line-height: 1.6;
     padding: 0.25rem 0;
   }
 
   .meaning-content {
-    color: #333;
+    color: var(--text-primary);
   }
 
   .meaning-source {
-    color: #999;
+    color: var(--text-tertiary);
     font-size: 0.75rem;
   }
 
   .section-title {
     padding: 0.75rem 1rem;
     font-size: 0.75rem;
-    color: #999;
-    background: #fafafa;
-    border-bottom: 1px solid #eee;
+    color: var(--text-tertiary);
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
   }
 
   /* AI Chat styles */
   .panel-footer {
-    padding: 1rem;
-    border-top: 1px solid #eee;
-    background: #f8f9fa;
+    padding: 0.5rem 0.75rem;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-secondary);
     position: relative;
   }
 
   .panel-footer textarea {
     width: 100%;
-    padding: 0.75rem;
-    border: 1px solid #e5e5e5;
-    border-radius: 8px;
+    padding: 0.5rem 0.625rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
     font-size: 0.875rem;
     resize: none;
     transition: all 0.15s;
     box-sizing: border-box;
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.5rem;
   }
 
   .panel-footer textarea:focus {
     outline: none;
-    border-color: #2dd4bf;
+    border-color: var(--primary-color);
     box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.1);
   }
 
   .panel-footer textarea:disabled {
-    background: #f5f5f5;
+    background: var(--bg-tertiary);
     cursor: not-allowed;
   }
 
@@ -2016,26 +2510,27 @@ function saveEditAnnotationWrapper() {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 0.25rem;
   }
 
   .footer-actions .btn-text {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem;
+    gap: 0.25rem;
+    padding: 0.375rem;
   }
 
   .footer-actions .btn-text svg {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
   }
 
   .footer-actions .btn-primary {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
-    height: 36px;
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
     padding: 0;
   }
@@ -2054,8 +2549,8 @@ function saveEditAnnotationWrapper() {
     bottom: 100%;
     right: 0;
     margin-bottom: 0.5rem;
-    background: white;
-    border: 1px solid #eee;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     z-index: 100;
@@ -2078,20 +2573,20 @@ function saveEditAnnotationWrapper() {
     text-align: left;
     cursor: pointer;
     font-size: 0.75rem;
-    color: #333;
+    color: var(--text-primary);
     transition: background 0.15s;
     width: 100%;
     box-sizing: border-box;
   }
 
   .export-option:hover {
-    background: #f8f9fa;
+    background: var(--bg-secondary);
   }
 
   .export-option svg {
     width: 14px;
     height: 14px;
-    color: #666;
+    color: var(--text-secondary);
   }
 
   .send-loading {
@@ -2099,7 +2594,7 @@ function saveEditAnnotationWrapper() {
     height: 20px;
     border: 2px solid rgba(255, 255, 255, 0.3);
     border-radius: 50%;
-    border-top-color: white;
+    border-top-color: var(--bg-primary);
     animation: spin 1s ease-in-out infinite;
   }
 
@@ -2124,7 +2619,7 @@ function saveEditAnnotationWrapper() {
   }
 
   .dialog-content {
-    background: white;
+    background: var(--bg-primary);
     border-radius: 12px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
     width: 90%;
@@ -2137,14 +2632,14 @@ function saveEditAnnotationWrapper() {
     justify-content: space-between;
     align-items: center;
     padding: 1.5rem;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--border-color);
   }
 
   .dialog-header h3 {
     margin: 0;
     font-size: 1.125rem;
     font-weight: 500;
-    color: #333;
+    color: var(--text-primary);
   }
 
   .dialog-close {
@@ -2157,12 +2652,12 @@ function saveEditAnnotationWrapper() {
     border: none;
     border-radius: 4px;
     cursor: pointer;
-    color: #999;
+    color: var(--text-tertiary);
   }
 
   .dialog-close:hover {
-    background: #f0f0f0;
-    color: #333;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
   }
 
   .dialog-body {
@@ -2174,8 +2669,8 @@ function saveEditAnnotationWrapper() {
     justify-content: flex-end;
     gap: 0.75rem;
     padding: 1.5rem;
-    border-top: 1px solid #eee;
-    background: #f8f9fa;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-secondary);
   }
 
   .ai-annotation-selected {
@@ -2186,17 +2681,17 @@ function saveEditAnnotationWrapper() {
     display: block;
     font-size: 0.875rem;
     font-weight: 500;
-    color: #666;
+    color: var(--text-secondary);
     margin-bottom: 0.5rem;
   }
 
   .ai-annotation-selected .text {
     display: block;
     padding: 0.75rem;
-    background: #f8f9fa;
+    background: var(--bg-secondary);
     border-radius: 6px;
     font-size: 0.875rem;
-    color: #333;
+    color: var(--text-primary);
   }
 
   .ai-annotation-result {
@@ -2207,29 +2702,29 @@ function saveEditAnnotationWrapper() {
     display: block;
     font-size: 0.875rem;
     font-weight: 500;
-    color: #666;
+    color: var(--text-secondary);
     margin-bottom: 0.5rem;
   }
 
   .result-content {
     padding: 0.75rem;
-    background: #f0fdfa;
-    border: 1px solid #e0f2f1;
+    background: var(--primary-50);
+    border: 1px solid var(--primary-100);
     border-radius: 6px;
     font-size: 0.875rem;
-    color: #333;
+    color: var(--text-primary);
     margin-bottom: 0.5rem;
   }
 
   .ai-note {
     font-size: 0.75rem;
-    color: #999;
+    color: var(--text-tertiary);
     font-style: italic;
   }
 
   .ai-annotation-question {
     font-size: 0.875rem;
-    color: #333;
+    color: var(--text-primary);
     text-align: center;
     margin-top: 1rem;
   }
@@ -2245,8 +2740,8 @@ function saveEditAnnotationWrapper() {
   .loading-circle {
     width: 40px;
     height: 40px;
-    border: 3px solid #f3f3f3;
-    border-top: 3px solid #2dd4bf;
+    border: 3px solid var(--bg-tertiary);
+    border-top: 3px solid var(--primary-color);
     border-radius: 50%;
     animation: spin 1s linear infinite;
     margin-bottom: 1rem;
@@ -2263,7 +2758,7 @@ function saveEditAnnotationWrapper() {
     width: 100%;
     min-height: 80px;
     padding: 0.75rem;
-    border: 1px solid #e0f2f1;
+    border: 1px solid var(--primary-100);
     border-radius: 6px;
     font-size: 0.875rem;
     font-family: inherit;
@@ -2273,7 +2768,7 @@ function saveEditAnnotationWrapper() {
 
   .result-content.editable:focus {
     outline: none;
-    border-color: #2dd4bf;
+    border-color: var(--primary-color);
     box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.1);
   }
 
@@ -2313,8 +2808,8 @@ function saveEditAnnotationWrapper() {
   }
 
   .think-container {
-    background: #f8f9fa;
-    border: 1px solid #e5e7eb;
+    background: var(--bg-secondary);
+    border: 1px solid var(--gray-200);
     border-radius: 8px;
     margin-bottom: 0.75rem;
     overflow: hidden;
@@ -2330,12 +2825,12 @@ function saveEditAnnotationWrapper() {
     border: none;
     cursor: pointer;
     font-size: 0.75rem;
-    color: #666;
+    color: var(--text-secondary);
     transition: all 0.15s;
   }
 
   .think-toggle:hover {
-    background: #f0f2f5;
+    background: var(--bg-secondary);
   }
 
   .think-toggle svg {
@@ -2348,9 +2843,9 @@ function saveEditAnnotationWrapper() {
     padding: 0.75rem;
     font-size: 0.8125rem;
     line-height: 1.5;
-    color: #4b5563;
+    color: var(--gray-600);
     background: #fefefe;
-    border-top: 1px solid #e5e7eb;
+    border-top: 1px solid var(--gray-200);
   }
 
   .think-container.streaming {
@@ -2379,10 +2874,10 @@ function saveEditAnnotationWrapper() {
     justify-content: space-between;
     align-items: center;
     padding: 0.75rem 1rem;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--border-color);
     font-size: 0.8125rem;
     font-weight: 500;
-    color: #333;
+    color: var(--text-primary);
   }
 
   .session-list {
@@ -2403,12 +2898,12 @@ function saveEditAnnotationWrapper() {
   }
 
   .session-item:hover {
-    background: #f8f9fa;
+    background: var(--bg-secondary);
   }
 
   .session-item.active {
-    background: #f0fdfa;
-    border: 1px solid #e0f2fe;
+    background: var(--primary-50);
+    border: 1px solid rgba(6, 182, 212, 0.2);
   }
 
   .session-info {
@@ -2418,7 +2913,7 @@ function saveEditAnnotationWrapper() {
   .session-title {
     font-size: 0.875rem;
     font-weight: 500;
-    color: #1a1a1a;
+    color: var(--text-primary);
     margin-bottom: 0.25rem;
     display: flex;
     align-items: center;
@@ -2427,15 +2922,15 @@ function saveEditAnnotationWrapper() {
 
   .session-badge {
     font-size: 0.6875rem;
-    color: #2dd4bf;
-    background: #f0fdfa;
+    color: var(--primary-color);
+    background: var(--primary-50);
     padding: 0.125rem 0.375rem;
     border-radius: 4px;
   }
 
   .session-meta {
     font-size: 0.75rem;
-    color: #999;
+    color: var(--text-tertiary);
   }
 
   .session-actions {
@@ -2451,14 +2946,14 @@ function saveEditAnnotationWrapper() {
 
   .session-manager-footer {
     padding: 1rem;
-    border-top: 1px solid #eee;
-    background: #f8f9fa;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-secondary);
   }
 
   .session-title-input {
     width: 100%;
     padding: 0.5rem;
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--gray-200);
     border-radius: 6px;
     font-size: 0.875rem;
     margin-bottom: 0.75rem;
@@ -2466,7 +2961,7 @@ function saveEditAnnotationWrapper() {
 
   .session-title-input:focus {
     outline: none;
-    border-color: #2dd4bf;
+    border-color: var(--primary-color);
     box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.1);
   }
 
@@ -2478,7 +2973,7 @@ function saveEditAnnotationWrapper() {
 
   .message-timestamp {
     font-size: 0.6875rem;
-    color: #999;
+    color: var(--text-tertiary);
     margin-top: 0.25rem;
     text-align: right;
   }
@@ -2509,44 +3004,142 @@ function saveEditAnnotationWrapper() {
     width: 28px;
     height: 28px;
     border-radius: 50%;
-    background: #f0f0f0;
+    background: var(--bg-tertiary);
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 12px;
     font-weight: 500;
-    color: #666;
+    color: var(--text-secondary);
   }
 
   .message-content {
-    padding: 0.75rem 1rem;
+    padding: 0.5rem 0.75rem;
     border-radius: 12px;
     line-height: 1.5;
     font-size: 0.875rem;
   }
 
+  .message-content :deep(h1),
+  .message-content :deep(h2),
+  .message-content :deep(h3),
+  .message-content :deep(h4),
+  .message-content :deep(h5),
+  .message-content :deep(h6) {
+    margin: 0.5em 0 0.3em;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  .message-content :deep(h1) { font-size: 1.5em; }
+  .message-content :deep(h2) { font-size: 1.3em; }
+  .message-content :deep(h3) { font-size: 1.15em; }
+
+  .message-content :deep(p) {
+    margin: 0.5em 0;
+  }
+
+  .message-content :deep(ul),
+  .message-content :deep(ol) {
+    margin: 0.5em 0;
+    padding-left: 1.5em;
+  }
+
+  .message-content :deep(li) {
+    margin: 0.25em 0;
+  }
+
+  .message-content :deep(code) {
+    background: rgba(0, 0, 0, 0.05);
+    padding: 0.15em 0.4em;
+    border-radius: 3px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.9em;
+  }
+
+  .message-content :deep(pre) {
+    background: rgba(0, 0, 0, 0.05);
+    padding: 0.75em 1em;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 0.5em 0;
+  }
+
+  .message-content :deep(pre code) {
+    background: none;
+    padding: 0;
+  }
+
+  .message-content :deep(blockquote) {
+    border-left: 3px solid var(--primary-color);
+    margin: 0.5em 0;
+    padding: 0.25em 0 0.25em 1em;
+    color: var(--text-secondary);
+  }
+
+  .message-content :deep(strong) {
+    font-weight: 600;
+  }
+
+  .message-content :deep(em) {
+    font-style: italic;
+  }
+
+  .message-content :deep(a) {
+    color: var(--primary-color);
+    text-decoration: none;
+  }
+
+  .message-content :deep(a:hover) {
+    text-decoration: underline;
+  }
+
+  .message-content :deep(hr) {
+    border: none;
+    border-top: 1px solid var(--border-color);
+    margin: 1em 0;
+  }
+
+  .message-content :deep(table) {
+    border-collapse: collapse;
+    margin: 0.5em 0;
+    width: 100%;
+  }
+
+  .message-content :deep(th),
+  .message-content :deep(td) {
+    border: 1px solid var(--border-color);
+    padding: 0.4em 0.6em;
+    text-align: left;
+  }
+
+  .message-content :deep(th) {
+    background: var(--bg-tertiary);
+    font-weight: 600;
+  }
+
   .message.user .message-content {
-    background: #e3f2fd;
-    color: #1565c0;
+    background: rgba(59, 130, 246, 0.1);
+    color: var(--info-color);
     border-top-left-radius: 4px;
   }
 
   .message.assistant .message-content {
-    background: #f8f9fa;
-    color: #333;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
     border-top-right-radius: 4px;
   }
 
   .message.assistant .message-content.streaming {
-    background: #f0f9ff;
-    border: 1px solid #e0f2fe;
+    background: rgba(6, 182, 212, 0.1);
+    border: 1px solid rgba(6, 182, 212, 0.2);
   }
 
   .loading-message {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    color: #666;
+    color: var(--text-secondary);
     font-size: 0.8125rem;
     padding: 0.5rem 0;
   }
@@ -2559,7 +3152,7 @@ function saveEditAnnotationWrapper() {
   .loading-dots span {
     width: 6px;
     height: 6px;
-    background: #999;
+    background: var(--text-tertiary);
     border-radius: 50%;
     animation: loading 1.4s infinite ease-in-out both;
   }
@@ -2582,8 +3175,8 @@ function saveEditAnnotationWrapper() {
   }
 
   .error-message {
-    background: #fef2f2;
-    color: #dc2626;
+    background: rgba(239, 68, 68, 0.05);
+    color: var(--error-color);
     padding: 0.5rem;
     border-radius: 6px;
     font-size: 0.8125rem;
@@ -2592,7 +3185,7 @@ function saveEditAnnotationWrapper() {
 
   @media print {
     .reader {
-      background: white;
+      background: var(--bg-primary);
     }
 
     .header,
@@ -2601,16 +3194,6 @@ function saveEditAnnotationWrapper() {
     .btn-primary,
     .btn-icon {
       display: none !important;
-    }
-
-    .print-title {
-      display: block;
-      font-size: 18pt;
-      font-weight: 600;
-      text-align: center;
-      margin-bottom: 1rem;
-      padding-bottom: 0.5rem;
-      border-bottom: 1px solid #e0e0e0;
     }
 
     .body {
@@ -2638,6 +3221,14 @@ function saveEditAnnotationWrapper() {
       line-height: 1.8;
     }
 
+    .content :deep(.article-title),
+    .article-title {
+      font-size: 14pt;
+      font-weight: 600;
+      text-align: center;
+      margin-bottom: 0.75rem;
+    }
+
     .content :deep(.ann-highlight) {
       background: rgba(245, 158, 11, 0.15);
       print-color-adjust: exact;
@@ -2646,13 +3237,13 @@ function saveEditAnnotationWrapper() {
 
     .content :deep(.ann-note::before) {
       content: "【";
-      color: #f59e0b;
+      color: var(--warning-color);
     }
 
     .content :deep(.ann-note::after) {
       content: attr(data-content) "】";
       display: inline;
-      color: #666;
+      color: var(--text-secondary);
     }
   }
 </style>

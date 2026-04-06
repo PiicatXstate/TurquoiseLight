@@ -1,5 +1,4 @@
 import { ref, computed } from 'vue'
-import type { Article } from '@/types'
 
 export function useDictionary(articles: any) {
   const dictionaryQuery = ref('')

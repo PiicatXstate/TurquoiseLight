@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import type { ChatSession, ChatMessage } from '@/types/chat'
 
 function generateId(): string {
@@ -11,6 +11,9 @@ export function useChatSessions(articleId: string) {
   const showSessionManager = ref(false)
   const editingSessionId = ref<string | null>(null)
   const editingSessionTitle = ref('')
+  
+  // 存储每个会话的滚动位置
+  const scrollPositions = ref<Record<string, number>>({})
 
   function loadChatSessions() {
     try {
@@ -65,6 +68,9 @@ export function useChatSessions(articleId: string) {
   }
 
   function createChatSession(title: string) {
+    // 保存当前会话的滚动位置
+    saveCurrentScrollPosition()
+    
     const newSession: ChatSession = {
       id: generateId(),
       title,
@@ -85,6 +91,12 @@ export function useChatSessions(articleId: string) {
     chatSessions.value.push(newSession)
     currentSessionId.value = newSession.id
     saveChatSessions()
+    
+    // 新会话不需要恢复滚动位置，应该滚动到底部
+    setTimeout(() => {
+      scrollToBottom()
+    }, 50)
+    
     return newSession
   }
 
@@ -98,6 +110,9 @@ export function useChatSessions(articleId: string) {
   }
 
   function deleteChatSession(id: string) {
+    // 保存当前会话的滚动位置
+    saveCurrentScrollPosition()
+    
     const index = chatSessions.value.findIndex(s => s.id === id)
     if (index !== -1) {
       // 不能删除默认会话
@@ -109,6 +124,10 @@ export function useChatSessions(articleId: string) {
         // 切换到另一个会话
         if (chatSessions.value.length > 0) {
           currentSessionId.value = chatSessions.value[0].id
+          // 恢复新会话的滚动位置
+          setTimeout(() => {
+            restoreScrollPosition(currentSessionId.value)
+          }, 50)
         } else {
           // 创建一个新的默认会话
           const defaultSession: ChatSession = {
@@ -130,6 +149,10 @@ export function useChatSessions(articleId: string) {
           }
           chatSessions.value = [defaultSession]
           currentSessionId.value = defaultSession.id
+          // 新会话滚动到底部
+          setTimeout(() => {
+            scrollToBottom()
+          }, 50)
         }
       }
       saveChatSessions()
@@ -151,10 +174,7 @@ export function useChatSessions(articleId: string) {
       // 当添加消息的是当前会话时，自动滚动到底部
       if (sessionId === currentSessionId.value) {
         setTimeout(() => {
-          const messagesContainer = document.querySelector('.messages')
-          if (messagesContainer) {
-            messagesContainer.scrollTop = messagesContainer.scrollHeight
-          }
+          scrollToBottom()
         }, 50)
       }
     }
@@ -193,6 +213,49 @@ export function useChatSessions(articleId: string) {
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
   }
+
+  // 保存当前会话的滚动位置
+  function saveCurrentScrollPosition() {
+    if (currentSessionId.value) {
+      const messagesContainer = document.querySelector('.messages')
+      if (messagesContainer) {
+        scrollPositions.value[currentSessionId.value] = messagesContainer.scrollTop
+      }
+    }
+  }
+
+  // 恢复会话的滚动位置
+  function restoreScrollPosition(sessionId: string) {
+    const messagesContainer = document.querySelector('.messages')
+    if (messagesContainer && scrollPositions.value[sessionId]) {
+      messagesContainer.scrollTop = scrollPositions.value[sessionId]
+    } else {
+      // 如果没有保存的位置，滚动到底部
+      scrollToBottom()
+    }
+  }
+
+  // 滚动到底部
+  function scrollToBottom() {
+    const messagesContainer = document.querySelector('.messages')
+    if (messagesContainer) {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight
+    }
+  }
+
+  // 监听会话切换，保存和恢复滚动位置
+  watch(currentSessionId, (newSessionId, oldSessionId) => {
+    if (oldSessionId) {
+      // 保存旧会话的滚动位置
+      saveCurrentScrollPosition()
+    }
+    if (newSessionId) {
+      // 恢复新会话的滚动位置
+      setTimeout(() => {
+        restoreScrollPosition(newSessionId)
+      }, 50)
+    }
+  })
 
   // 初始化加载聊天会话
   loadChatSessions()

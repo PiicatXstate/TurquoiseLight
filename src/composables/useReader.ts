@@ -1,11 +1,13 @@
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, type Ref } from 'vue'
 import type { Article, Annotation, TextFormat } from '@/types'
 
-export function useReader(article: computed<Article | undefined>, checkAnnotationExists: Function, addFormat: Function, removeFormat: Function) {
+export function useReader(article: Ref<Article | undefined>, checkAnnotationExists: Function, addFormat: Function, removeFormat: Function) {
   const showSettings = ref(false)
   const showAnnotations = ref(true)
   const showDictionary = ref(false)
   const showAIChat = ref(false)
+  const splitPanelMode = ref(false)
+  const splitRatio = ref(50)
   const selectedText = ref('')
   const selectedStartIndex = ref(0)
   const selectedEndIndex = ref(0)
@@ -13,7 +15,7 @@ export function useReader(article: computed<Article | undefined>, checkAnnotatio
   const isEditing = ref(false)
   const editContent = ref('')
   const selectedAnnotationText = ref('')
-  const sidebarWidth = ref(280) // 侧边栏默认宽度
+  const sidebarWidth = ref(280)
 
   // 上下文菜单
   const contextMenu = ref({
@@ -32,8 +34,8 @@ export function useReader(article: computed<Article | undefined>, checkAnnotatio
 
   // 侧边栏宽度调节
   const isResizing = ref(false)
+  const isSplitResizing = ref(false)
 
-  // 预设字体
   const presetFonts = [
     'serif',
     'KaiTi, serif',
@@ -66,6 +68,8 @@ export function useReader(article: computed<Article | undefined>, checkAnnotatio
     // 添加侧边栏宽度调节的事件监听器
     document.addEventListener('mousemove', resize)
     document.addEventListener('mouseup', stopResize)
+    document.addEventListener('mousemove', splitResize)
+    document.addEventListener('mouseup', stopSplitResize)
     
     const content = readerContent.value
     if (content) {
@@ -81,6 +85,8 @@ export function useReader(article: computed<Article | undefined>, checkAnnotatio
     // 移除侧边栏宽度调节的事件监听器
     document.removeEventListener('mousemove', resize)
     document.removeEventListener('mouseup', stopResize)
+    document.removeEventListener('mousemove', splitResize)
+    document.removeEventListener('mouseup', stopSplitResize)
     
     const content = readerContent.value
     if (content) {
@@ -305,6 +311,10 @@ export function useReader(article: computed<Article | undefined>, checkAnnotatio
 
     let result = ''
 
+    // 检查是否为ref对象
+    const expandedAnnotationsSet = expandedAnnotations.value || expandedAnnotations
+    const annotationLockModeValue = annotationLockMode.value || annotationLockMode
+
     for (let i = 0; i < chars.length; i++) {
       if (annotationStarts.has(i)) {
         const startingAnns = annotationStarts.get(i)!
@@ -342,7 +352,7 @@ export function useReader(article: computed<Article | undefined>, checkAnnotatio
         const endingAnns = annotationEnds.get(i + 1)!
         for (const ann of endingAnns) {
           const depth = getAnnotationDepth(ann, annotations)
-          const isExpanded = annotationLockMode.value === 'locked' || annotationLockMode.value === 'all-expanded' || expandedAnnotations.value.has(ann.id)
+          const isExpanded = annotationLockModeValue === 'locked' || annotationLockModeValue === 'all-expanded' || expandedAnnotationsSet.has(ann.id)
           result += `</span>`
           result += `<span class="ann-note ann-depth-${depth}" data-id="${ann.id}" data-content="${ann.content.replace(/"/g, '&quot;')}" data-expanded="${isExpanded}"></span>`
         }
@@ -352,20 +362,61 @@ export function useReader(article: computed<Article | undefined>, checkAnnotatio
     return result
   }
 
-  function handleContentClick(e: MouseEvent, toggleAnnotation: Function) {
-    const target = e.target as HTMLElement
+  // 用于跟踪触摸事件，防止移动端click事件重复触发
+  let lastTouchTime = 0
 
-    if (target.classList.contains('ann-note')) {
-      e.stopPropagation()
-      const id = target.dataset.id
-      if (id) {
-        toggleAnnotation(id)
+  function handleContentClick(e: MouseEvent | TouchEvent, toggleAnnotation: Function) {
+    let target: HTMLElement | null = null
+    
+    // 检查是否是由触摸事件触发的click事件
+    if (e instanceof MouseEvent) {
+      const now = Date.now()
+      const timeSinceLastTouch = now - lastTouchTime
+      
+      // 如果是在300ms内触发的click事件，认为是触摸事件的后续，不处理
+      if (timeSinceLastTouch < 300) {
+        e.preventDefault()
+        e.stopPropagation()
+        return
+      }
+      
+      target = e.target as HTMLElement
+    } else if (e instanceof TouchEvent) {
+      // 记录触摸事件时间
+      lastTouchTime = Date.now()
+      
+      // 优先使用changedTouches，因为在touchend事件中touches是空的
+      if (e.changedTouches.length > 0) {
+        target = e.changedTouches[0].target as HTMLElement
+      } else if (e.touches.length > 0) {
+        target = e.touches[0].target as HTMLElement
       }
     }
+    
+    if (!target) return
 
-    if (target.classList.contains('ann-highlight')) {
-      const id = target.dataset.id
+    // 测试点击的元素
+    console.log('点击的元素:', target)
+    console.log('元素类名:', target.className)
+    console.log('元素数据:', target.dataset)
+
+    // 检查是否点击了注释元素
+    let annotationElement: HTMLElement | null = target
+    while (annotationElement && !annotationElement.classList.contains('ann-note') && !annotationElement.classList.contains('ann-highlight')) {
+      annotationElement = annotationElement.parentElement
+    }
+    
+    if (annotationElement) {
+      console.log('找到注释元素:', annotationElement)
+      // 阻止事件冒泡，防止触发其他点击事件
+      if (e instanceof MouseEvent) {
+        e.stopPropagation()
+      } else if (e instanceof TouchEvent) {
+        e.preventDefault()
+      }
+      const id = annotationElement.dataset.id
       if (id) {
+        console.log('切换注释:', id)
         toggleAnnotation(id)
       }
     }
@@ -421,9 +472,9 @@ export function useReader(article: computed<Article | undefined>, checkAnnotatio
   function resize(e: MouseEvent) {
     if (!isResizing.value) return
     
-    // 计算新的侧边栏宽度，限制最小宽度为200px，最大宽度为500px
+    // 计算新的侧边栏宽度，无限制
     const newWidth = window.innerWidth - e.clientX
-    if (newWidth >= 200 && newWidth <= 500) {
+    if (newWidth >= 100) {
       sidebarWidth.value = newWidth
     }
   }
@@ -434,11 +485,39 @@ export function useReader(article: computed<Article | undefined>, checkAnnotatio
     document.body.style.userSelect = ''
   }
 
+  function startSplitResize(e: MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    isSplitResizing.value = true
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
+
+  function splitResize(e: MouseEvent) {
+    if (!isSplitResizing.value) return
+    
+    const panel = document.querySelector('.split-panel') as HTMLElement
+    if (!panel) return
+    
+    const rect = panel.getBoundingClientRect()
+    const newRatio = ((e.clientX - rect.left) / rect.width) * 100
+    
+    splitRatio.value = Math.max(0, Math.min(100, newRatio))
+  }
+
+  function stopSplitResize() {
+    isSplitResizing.value = false
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  }
+
   return {
     showSettings,
     showAnnotations,
     showDictionary,
     showAIChat,
+    splitPanelMode,
+    splitRatio,
     selectedText,
     selectedStartIndex,
     selectedEndIndex,
@@ -471,6 +550,9 @@ export function useReader(article: computed<Article | undefined>, checkAnnotatio
     handlePrint,
     startResize,
     resize,
-    stopResize
+    stopResize,
+    startSplitResize,
+    splitResize,
+    stopSplitResize
   }
 }

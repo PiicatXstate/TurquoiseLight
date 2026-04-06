@@ -1,27 +1,31 @@
 import { ref } from 'vue'
 import type { Annotation, Article } from '@/types'
+import { useGlobalSettings } from './useGlobalSettings'
 
 export function useAnnotations() {
-  // AI注释相关状态
+  const { settings } = useGlobalSettings()
+  
   const showAIAnnotationDialog = ref(false)
   const aiAnnotationLoading = ref(false)
   const aiAnnotationError = ref('')
   const aiAnnotationResult = ref('')
   const aiAnnotationSelectedText = ref('')
 
-  // 注释编辑状态
   const annotationContent = ref('')
   const editingAnnotationId = ref<string | null>(null)
   const editingAnnotationContent = ref('')
   const annotationError = ref('')
 
-  // 注释展开状态
   const expandedAnnotations = ref<Set<string>>(new Set())
   const annotationLockMode = ref<'normal' | 'locked' | 'all-expanded' | 'all-collapsed'>('normal')
 
-  // 处理AI选区注释
   async function handleAISelectionAnnotation(selectedText: string, article: Article | undefined, selectedStartIndex: number, selectedEndIndex: number) {
     if (!selectedText || !article) return
+    
+    if (!settings.value.apiKey) {
+      aiAnnotationError.value = '请先设置API Key'
+      return
+    }
     
     aiAnnotationSelectedText.value = selectedText
     aiAnnotationLoading.value = true
@@ -29,19 +33,18 @@ export function useAnnotations() {
     aiAnnotationResult.value = ''
     
     try {
-      // 提取上下文信息
       const content = article.content
-      const startContext = content.substring(Math.max(0, selectedStartIndex - 100), selectedStartIndex)
-      const endContext = content.substring(selectedEndIndex, Math.min(content.length, selectedEndIndex + 100))
+      const startContext = content.substring(Math.max(0, selectedStartIndex - 20), selectedStartIndex)
+      const endContext = content.substring(selectedEndIndex, Math.min(content.length, selectedEndIndex + 20))
       
-      const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
+      const response = await fetch(`${settings.value.apiBaseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer sk-lbtjhwrjebrwhwttikwrkasfwcbsijbuojzlizzihmoksyca'
+          'Authorization': `Bearer ${settings.value.apiKey}`
         },
         body: JSON.stringify({
-          model: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-7B',
+          model: settings.value.aiModel === 'custom' ? settings.value.customModelName : settings.value.aiModel,
           messages: [
             {
               role: 'system',
@@ -87,19 +90,20 @@ export function useAnnotations() {
             const data = JSON.parse(line.replace('data: ', ''))
             const delta = data.choices[0]?.delta
             if (delta?.content) {
-              if (!streamHasThink) {
-                // 检查是否包含</think>分隔符
-                if (delta.content.includes('</think>')) {
-                  const parts = delta.content.split('</think>')
-                  streamThink += parts[0]
-                  streamContent += parts[1]
-                  streamHasThink = true
+              if (settings.value.isThinkingModel) {
+                if (!streamHasThink) {
+                  if (delta.content.includes('```')) {
+                    const parts = delta.content.split('```')
+                    streamThink += parts[0]
+                    streamContent += parts[1] || ''
+                    streamHasThink = true
+                  } else {
+                    streamThink += delta.content
+                  }
                 } else {
-                  // 还没有遇到</think>，暂时全部作为思考内容
-                  streamThink += delta.content
+                  streamContent += delta.content
                 }
               } else {
-                // 已经遇到</think>，后续内容全部作为输出内容
                 streamContent += delta.content
               }
             }
@@ -109,15 +113,13 @@ export function useAnnotations() {
         }
       }
       
-      // 使用分割后的内容
-      let annotationContent = streamContent.trim()
+      let finalContent = streamContent.trim()
       
-      // 如果没有内容，使用默认提示
-      if (!annotationContent) {
-        annotationContent = '无法生成注释，请稍后重试。'
+      if (!finalContent) {
+        finalContent = '无法生成注释，请稍后重试。'
       }
       
-      aiAnnotationResult.value = annotationContent
+      aiAnnotationResult.value = finalContent
       showAIAnnotationDialog.value = true
       
     } catch (err) {
@@ -128,7 +130,6 @@ export function useAnnotations() {
     }
   }
 
-  // 确认添加AI注释
   function confirmAddAIAnnotation(article: Article | undefined, selectedText: string, selectedStartIndex: number, selectedEndIndex: number, addAnnotation: Function) {
     if (article && selectedText && aiAnnotationResult.value) {
       const success = addAnnotation(
@@ -146,14 +147,12 @@ export function useAnnotations() {
     }
   }
 
-  // 取消AI注释
   function cancelAIAnnotation() {
     showAIAnnotationDialog.value = false
     aiAnnotationResult.value = ''
     aiAnnotationSelectedText.value = ''
   }
 
-  // 切换注释展开状态
   function toggleAnnotation(annotationId: string) {
     if (annotationLockMode.value !== 'normal') return
     if (expandedAnnotations.value.has(annotationId)) {
@@ -163,7 +162,6 @@ export function useAnnotations() {
     }
   }
 
-  // 设置注释模式
   function setAnnotationMode(mode: 'normal' | 'locked' | 'all-expanded' | 'all-collapsed', article: Article | undefined) {
     annotationLockMode.value = mode
     if (mode === 'all-expanded' && article) {
@@ -175,13 +173,11 @@ export function useAnnotations() {
     }
   }
 
-  // 开始编辑注释
   function startEditAnnotation(ann: Annotation) {
     editingAnnotationId.value = ann.id
     editingAnnotationContent.value = ann.content
   }
 
-  // 保存编辑的注释
   function saveEditAnnotation(article: Article | undefined, updateAnnotation: Function) {
     if (article && editingAnnotationId.value && editingAnnotationContent.value.trim()) {
       updateAnnotation(article.id, editingAnnotationId.value, editingAnnotationContent.value.trim())
@@ -190,13 +186,11 @@ export function useAnnotations() {
     }
   }
 
-  // 取消编辑注释
   function cancelEditAnnotation() {
     editingAnnotationId.value = null
     editingAnnotationContent.value = ''
   }
 
-  // 计算注释深度
   function getAnnotationDepth(annotation: Annotation, allAnnotations: Annotation[]): number {
     let depth = 0
     for (const other of allAnnotations) {

@@ -348,7 +348,7 @@ function viewArticle(article: SharedArticle) {
 .square-page {
   position: fixed;
   inset: 0;
-  background: #f8f9fa;
+  background: var(--bg-secondary);
   z-index: 1000;
   display: flex;
   flex-direction: column;
@@ -359,15 +359,15 @@ function viewArticle(article: SharedArticle) {
   justify-content: space-between;
   align-items: center;
   padding: 1rem 1.25rem;
-  background: white;
-  border-bottom: 1px solid #eee;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .square-header h2 {
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--text-primary);
 }
 
 .close-btn {
@@ -380,11 +380,11 @@ function viewArticle(article: SharedArticle) {
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .close-btn:hover {
-  background: #f0f0f0;
+  background: var(--bg-tertiary);
 }
 
 .close-btn svg {
@@ -394,8 +394,8 @@ function viewArticle(article: SharedArticle) {
 
 .square-actions {
   padding: 0.75rem 1rem;
-  background: white;
-  border-bottom: 1px solid #eee;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .publish-btn {
@@ -405,8 +405,8 @@ function viewArticle(article: SharedArticle) {
   gap: 0.5rem;
   width: 100%;
   padding: 0.625rem;
-  background: #2dd4bf;
-  color: white;
+  background: var(--primary-color);
+  color: var(--bg-primary);
   border: none;
   border-radius: 6px;
   font-size: 0.875rem;
@@ -416,11 +416,11 @@ function viewArticle(article: SharedArticle) {
 }
 
 .publish-btn:hover:not(:disabled) {
-  background: #14b8a6;
+  background: var(--primary-color);
 }
 
 .publish-btn.disabled {
-  background: #ccc;
+  background: var(--gray-300);
   cursor: not-allowed;
 }
 
@@ -438,7 +438,7 @@ function viewArticle(article: SharedArticle) {
 .loading, .empty {
   text-align: center;
   padding: 3rem 1rem;
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .empty .hint {
@@ -447,17 +447,17 @@ function viewArticle(article: SharedArticle) {
 }
 
 .article-card {
-  background: white;
+  background: var(--bg-primary);
   border-radius: 8px;
   padding: 1rem;
   margin-bottom: 0.75rem;
   cursor: pointer;
   transition: all 0.15s;
-  border: 1px solid #eee;
+  border: 1px solid var(--border-color);
 }
 
 .article-card:hover {
-  border-color: #2dd4bf;
+  border-color: var(--primary-color);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
@@ -472,19 +472,19 @@ function viewArticle(article: SharedArticle) {
   margin: 0;
   font-size: 0.9375rem;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--text-primary);
   flex: 1;
 }
 
 .card-author {
   font-size: 0.75rem;
-  color: #999;
+  color: var(--text-tertiary);
   margin-left: 0.75rem;
 }
 
 .card-preview {
   font-size: 0.8125rem;
-  color: #666;
+  color: var(--text-secondary);
   line-height: 1.6;
   margin: 0 0 0.75rem 0;
 }
@@ -497,7 +497,7 @@ function viewArticle(article: SharedArticle) {
 
 .card-date {
   font-size: 0.6875rem;
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .card-stats {
@@ -510,7 +510,7 @@ function viewArticle(article: SharedArticle) {
   align-items: center;
   gap: 0.25rem;
   font-size: 0.6875rem;
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .stat svg {
@@ -523,7 +523,7 @@ function viewArticle(article: SharedArticle) {
   gap: 0.5rem;
   margin-top: 0.75rem;
   padding-top: 0.75rem;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--bg-tertiary);
 }
 
 .action-btn {
@@ -533,22 +533,22 @@ function viewArticle(article: SharedArticle) {
   justify-content: center;
   gap: 0.25rem;
   padding: 0.5rem;
-  background: #f8f9fa;
+  background: var(--bg-secondary);
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  color: #666;
+  color: var(--text-secondary);
   font-size: 0.75rem;
   transition: all 0.15s;
 }
 
 .action-btn:hover:not(:disabled) {
-  background: #f0f0f0;
-  color: #333;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .action-btn.liked {
-  color: #f59e0b;
+  color: var(--warning-color);
 }
 
 .action-btn:disabled {
@@ -568,17 +568,17 @@ function viewArticle(article: SharedArticle) {
 
 .load-more-btn {
   padding: 0.5rem 1.5rem;
-  background: white;
-  border: 1px solid #e5e5e5;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   font-size: 0.8125rem;
-  color: #666;
+  color: var(--text-secondary);
   cursor: pointer;
 }
 
 .load-more-btn:hover:not(:disabled) {
-  border-color: #2dd4bf;
-  color: #2dd4bf;
+  border-color: var(--primary-color);
+  color: var(--primary-color);
 }
 
 .publish-modal-overlay {
@@ -593,7 +593,7 @@ function viewArticle(article: SharedArticle) {
 }
 
 .publish-modal {
-  background: white;
+  background: var(--bg-primary);
   border-radius: 12px;
   width: 100%;
   max-width: 480px;
@@ -608,7 +608,7 @@ function viewArticle(article: SharedArticle) {
   justify-content: space-between;
   align-items: center;
   padding: 1rem 1.25rem;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .modal-header h3 {
@@ -625,7 +625,7 @@ function viewArticle(article: SharedArticle) {
 
 .step-hint {
   font-size: 0.8125rem;
-  color: #666;
+  color: var(--text-secondary);
   margin: 0 0 1rem 0;
 }
 
@@ -641,7 +641,7 @@ function viewArticle(article: SharedArticle) {
   justify-content: space-between;
   align-items: center;
   padding: 0.75rem;
-  background: #f8f9fa;
+  background: var(--bg-secondary);
   border: 1px solid transparent;
   border-radius: 6px;
   cursor: pointer;
@@ -650,18 +650,18 @@ function viewArticle(article: SharedArticle) {
 }
 
 .local-article-item:hover {
-  background: #f0fdfa;
-  border-color: #2dd4bf;
+  background: var(--primary-50);
+  border-color: var(--primary-color);
 }
 
 .article-title {
   font-size: 0.875rem;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .article-annotations {
   font-size: 0.6875rem;
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .divider {
@@ -677,7 +677,7 @@ function viewArticle(article: SharedArticle) {
   top: 50%;
   width: calc(50% - 40px);
   height: 1px;
-  background: #e5e5e5;
+  background: var(--border-color);
 }
 
 .divider::before {
@@ -689,10 +689,10 @@ function viewArticle(article: SharedArticle) {
 }
 
 .divider span {
-  background: white;
+  background: var(--bg-primary);
   padding: 0 0.5rem;
   font-size: 0.75rem;
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .form-group {
@@ -703,14 +703,14 @@ function viewArticle(article: SharedArticle) {
   display: block;
   margin-bottom: 0.25rem;
   font-size: 0.75rem;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .form-group input,
 .form-group textarea {
   width: 100%;
   padding: 0.5rem 0.625rem;
-  border: 1px solid #e5e5e5;
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   font-size: 0.875rem;
   box-sizing: border-box;
@@ -719,14 +719,14 @@ function viewArticle(article: SharedArticle) {
 .form-group input:focus,
 .form-group textarea:focus {
   outline: none;
-  border-color: #2dd4bf;
+  border-color: var(--primary-color);
 }
 
 .next-btn {
   width: 100%;
   padding: 0.625rem;
-  background: #2dd4bf;
-  color: white;
+  background: var(--primary-color);
+  color: var(--bg-primary);
   border: none;
   border-radius: 6px;
   font-size: 0.875rem;
@@ -739,7 +739,7 @@ function viewArticle(article: SharedArticle) {
 }
 
 .preview {
-  background: #f8f9fa;
+  background: var(--bg-secondary);
   border-radius: 8px;
   padding: 1rem;
   margin-bottom: 1rem;
@@ -748,20 +748,20 @@ function viewArticle(article: SharedArticle) {
 .preview-title {
   font-size: 1rem;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--text-primary);
   margin-bottom: 0.5rem;
 }
 
 .preview-content {
   font-size: 0.8125rem;
-  color: #666;
+  color: var(--text-secondary);
   line-height: 1.6;
   margin-bottom: 0.5rem;
 }
 
 .preview-annotations {
   font-size: 0.75rem;
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .publish-actions {
@@ -772,7 +772,7 @@ function viewArticle(article: SharedArticle) {
 .back-btn {
   flex: 1;
   padding: 0.625rem;
-  background: #f0f0f0;
+  background: var(--bg-tertiary);
   border: none;
   border-radius: 6px;
   font-size: 0.875rem;
@@ -782,8 +782,8 @@ function viewArticle(article: SharedArticle) {
 .publish-confirm-btn {
   flex: 1;
   padding: 0.625rem;
-  background: #2dd4bf;
-  color: white;
+  background: var(--primary-color);
+  color: var(--bg-primary);
   border: none;
   border-radius: 6px;
   font-size: 0.875rem;

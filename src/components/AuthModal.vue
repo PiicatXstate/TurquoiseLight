@@ -140,7 +140,7 @@ function switchMode() {
 }
 
 .auth-modal {
-  background: white;
+  background: var(--bg-primary);
   border-radius: 12px;
   width: 100%;
   max-width: 360px;
@@ -152,14 +152,14 @@ function switchMode() {
   justify-content: space-between;
   align-items: center;
   padding: 1.25rem 1.5rem;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .auth-header h2 {
   margin: 0;
   font-size: 1.125rem;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--text-primary);
 }
 
 .close-btn {
@@ -172,12 +172,12 @@ function switchMode() {
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .close-btn:hover {
-  background: #f0f0f0;
-  color: #666;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
 }
 
 .close-btn svg {
@@ -198,13 +198,13 @@ function switchMode() {
   margin-bottom: 0.375rem;
   font-size: 0.8125rem;
   font-weight: 500;
-  color: #4a4a4a;
+  color: var(--text-secondary);
 }
 
 .form-group input {
   width: 100%;
   padding: 0.625rem 0.75rem;
-  border: 1px solid #e5e5e5;
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   font-size: 0.875rem;
   transition: all 0.15s;
@@ -213,29 +213,29 @@ function switchMode() {
 
 .form-group input:focus {
   outline: none;
-  border-color: #2dd4bf;
+  border-color: var(--primary-color);
   box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.1);
 }
 
 .form-group input:disabled {
-  background: #f5f5f5;
+  background: var(--bg-tertiary);
   cursor: not-allowed;
 }
 
 .error-message {
-  color: #dc2626;
+  color: var(--error-color);
   font-size: 0.8125rem;
   margin-bottom: 1rem;
   padding: 0.5rem;
-  background: #fef2f2;
+  background: rgba(239, 68, 68, 0.05);
   border-radius: 6px;
 }
 
 .submit-btn {
   width: 100%;
   padding: 0.75rem;
-  background: #2dd4bf;
-  color: white;
+  background: var(--primary-color);
+  color: var(--bg-primary);
   border: none;
   border-radius: 6px;
   font-size: 0.875rem;
@@ -245,7 +245,7 @@ function switchMode() {
 }
 
 .submit-btn:hover:not(:disabled) {
-  background: #14b8a6;
+  background: var(--primary-color);
 }
 
 .submit-btn:disabled {
@@ -255,17 +255,17 @@ function switchMode() {
 
 .auth-footer {
   padding: 1rem 1.5rem;
-  background: #f8f9fa;
-  border-top: 1px solid #eee;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
   text-align: center;
   font-size: 0.8125rem;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .switch-btn {
   background: transparent;
   border: none;
-  color: #2dd4bf;
+  color: var(--primary-color);
   font-size: 0.8125rem;
   font-weight: 500;
   cursor: pointer;

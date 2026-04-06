@@ -1,7 +1,10 @@
 import { ref, computed } from 'vue'
 import type { ChatMessage } from '@/types/chat'
+import { useGlobalSettings } from './useGlobalSettings'
 
 export function useAIChat() {
+  const { settings } = useGlobalSettings()
+  
   const messages = ref([
     {
       role: 'assistant',
@@ -33,6 +36,12 @@ export function useAIChat() {
     const message = inputMessage.value.trim()
     if (!chatSession) return
     
+    // 检查API Key是否设置
+    if (!settings.value.apiKey) {
+      error.value = '请先设置API Key'
+      return
+    }
+    
     // 添加用户消息到当前会话
     chatSession.addMessageToSession(chatSession.currentSessionId.value, { role: 'user', content: message, think: '' })
     inputMessage.value = ''
@@ -44,14 +53,14 @@ export function useAIChat() {
     streamHasThink.value = false
     
     try {
-      const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
+      const response = await fetch(`${settings.value.apiBaseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer sk-lbtjhwrjebrwhwttikwrkasfwcbsijbuojzlizzihmoksyca'
+          'Authorization': `Bearer ${settings.value.apiKey}`
         },
         body: JSON.stringify({
-          model: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-7B',
+          model: settings.value.aiModel === 'custom' ? settings.value.customModelName : settings.value.aiModel,
           messages: [
             {
               role: 'system',
@@ -93,19 +102,25 @@ export function useAIChat() {
             const data = JSON.parse(line.replace('data: ', ''))
             const delta = data.choices[0]?.delta
             if (delta?.content) {
-              if (!streamHasThink.value) {
-                // 检查是否包含</think>分隔符
-                if (delta.content.includes('</think>')) {
-                  const parts = delta.content.split('</think>')
-                  streamThink.value += parts[0]
-                  streamContent.value += parts[1]
-                  streamHasThink.value = true
+              // 如果是思考模型，解析思考过程
+              if (settings.value.isThinkingModel) {
+                if (!streamHasThink.value) {
+                  // 检查是否包含```分隔符
+                  if (delta.content.includes('```')) {
+                    const parts = delta.content.split('```')
+                    streamThink.value += parts[0]
+                    streamContent.value += parts[1]
+                    streamHasThink.value = true
+                  } else {
+                    // 还没有遇到```，暂时全部作为思考内容
+                    streamThink.value += delta.content
+                  }
                 } else {
-                  // 还没有遇到</think>，暂时全部作为思考内容
-                  streamThink.value += delta.content
+                  // 已经遇到```，后续内容全部作为输出内容
+                  streamContent.value += delta.content
                 }
               } else {
-                // 已经遇到</think>，后续内容全部作为输出内容
+                // 非思考模型，直接作为输出内容
                 streamContent.value += delta.content
               }
             }
@@ -116,7 +131,7 @@ export function useAIChat() {
       }
       
       // 使用之前在流式处理中分离好的思考部分和输出部分
-      let think = streamThink.value.trim()
+      let think = settings.value.isThinkingModel ? streamThink.value.trim() : ''
       let content = streamContent.value.trim()
       
       // 如果没有思考部分，确保content不为空

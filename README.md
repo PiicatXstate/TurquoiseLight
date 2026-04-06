@@ -29,13 +29,26 @@ turquoise/
 │   ├── components/      # 组件
 │   │   ├── Reader.vue   # 阅读器组件（核心）
 │   │   ├── AIChat.vue   # AI聊天组件
-│   │   └── ArticleList.vue # 文章列表组件
+│   │   ├── ArticleList.vue # 文章列表组件
+│   │   ├── ArticleSquare.vue # 文章广场组件
+│   │   ├── AuthModal.vue # 认证弹窗组件
+│   │   └── Settings.vue # 全局设置组件
 │   ├── composables/     # 组合式函数
 │   │   ├── useArticles.ts # 文章管理
 │   │   ├── useAuth.ts   # 认证管理
-│   │   └── useSettings.ts # 设置管理
+│   │   ├── useSettings.ts # 阅读器设置管理
+│   │   ├── useGlobalSettings.ts # 全局设置管理（AI模型、主题色、缩放等）
+│   │   ├── useChatSessions.ts # 聊天会话管理
+│   │   ├── useAIChat.ts # AI聊天功能
+│   │   ├── useAnnotations.ts # 注释管理
+│   │   ├── useDictionary.ts # 词典功能
+│   │   └── useReader.ts # 阅读器核心功能
 │   ├── types/           # TypeScript类型定义
+│   │   ├── index.ts     # 主要类型定义
+│   │   └── chat.ts      # 聊天相关类型
 │   ├── utils/           # 工具函数
+│   │   ├── storage.ts   # 本地存储工具
+│   │   └── api.ts       # API工具
 │   ├── App.vue          # 应用根组件
 │   └── main.ts          # 应用入口
 ├── package.json         # 项目配置
@@ -53,10 +66,15 @@ turquoise/
 - AI辅助注释（选中文本后AI自动生成注释）
 - 词典查询（选中文本后快速查词典）
 - 聊天记录管理（AI聊天会话管理）
+- 阅读设置（字体、字号、行间距、注释字号等）
 
 **实现方案**：
 - 使用 `Reader.vue` 组件作为核心，负责文本渲染和交互
 - 通过 `useArticles` composable 管理文章和注释数据
+- 通过 `useReader` composable 管理阅读器核心功能
+- 通过 `useAnnotations` composable 管理注释相关功能
+- 通过 `useDictionary` composable 管理词典功能
+- 通过 `useChatSessions` 和 `useAIChat` composables 管理AI聊天功能
 - 使用 `localStorage` 存储文章和注释数据
 - 集成AI API实现智能注释和问答功能
 
@@ -68,13 +86,18 @@ turquoise/
 - 选中文本AI问答
 - 聊天会话管理（创建、重命名、删除会话）
 - 聊天记录导出（TXT、JSON格式）
+- 可配置的AI模型和API Key
 
 **实现方案**：
 - 使用 `AIChat.vue` 组件处理AI聊天界面
 - 通过 `Reader.vue` 中的AI注释功能处理选区注释
+- 通过 `useAIChat` composable 管理AI聊天状态和功能
+- 通过 `useChatSessions` composable 管理聊天会话
 - 使用 `localStorage` 存储聊天会话数据
 - 集成SiliconFlow API实现AI交互
 - 支持流式响应，提升用户体验
+- 思考过程处理：处理AI模型的思考过程，提取实际输出内容
+- 全局设置支持配置AI模型和API Key
 
 ### 3. 文章管理模块
 
@@ -102,6 +125,22 @@ turquoise/
 - 通过 `useArticles` composable 管理词典数据
 - 基于文章注释自动构建词典
 - 支持实时搜索和过滤
+
+### 5. 全局设置模块
+
+**功能**：
+- AI模型配置（选择模型、设置API Key）
+- 全局缩放调节（界面整体缩放比例）
+- 主题色设置（支持自定义主题色，应用到全部页面）
+- 设置持久化存储
+
+**实现方案**：
+- 使用 `Settings.vue` 组件提供全局设置界面
+- 通过 `useGlobalSettings.ts` composable 管理全局设置状态
+- 使用 `localStorage` 持久化存储用户设置
+- CSS自定义属性（CSS Variables）实现主题色动态切换
+- 通过CSS transform实现全局缩放效果
+- 主题色通过CSS变量应用到所有组件和页面
 
 ## 实现方案
 

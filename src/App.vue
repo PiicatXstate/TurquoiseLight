@@ -2,21 +2,17 @@
 import { ref, onMounted } from 'vue'
 import ArticleList from '@/components/ArticleList.vue'
 import Reader from '@/components/Reader.vue'
-import AuthModal from '@/components/AuthModal.vue'
-import ArticleSquare from '@/components/ArticleSquare.vue'
-import { useAuth } from '@/composables/useAuth'
-import type { SharedArticle } from '@/types'
+import Settings from '@/components/Settings.vue'
+import { useGlobalSettings } from '@/composables/useGlobalSettings'
 
-const { init, logout } = useAuth()
+const { loadSettings } = useGlobalSettings()
 
-const currentView = ref<'list' | 'reader' | 'square'>('list')
+const currentView = ref<'list' | 'reader'>('list')
 const currentArticleId = ref<string | null>(null)
-const showAuthModal = ref(false)
-const authMode = ref<'login' | 'register'>('login')
-const sharedArticle = ref<SharedArticle | null>(null)
+const showSettings = ref(false)
 
 onMounted(() => {
-  init()
+  loadSettings()
 })
 
 function openArticle(id: string) {
@@ -27,25 +23,10 @@ function openArticle(id: string) {
 function goBack() {
   currentView.value = 'list'
   currentArticleId.value = null
-  sharedArticle.value = null
 }
 
-function openLogin() {
-  authMode.value = 'login'
-  showAuthModal.value = true
-}
-
-function openSquare() {
-  currentView.value = 'square'
-}
-
-function handleLogout() {
-  logout()
-}
-
-function openSharedArticle(article: SharedArticle) {
-  sharedArticle.value = article
-  currentView.value = 'reader'
+function openSettings() {
+  showSettings.value = true
 }
 </script>
 
@@ -54,63 +35,24 @@ function openSharedArticle(article: SharedArticle) {
     <ArticleList
       v-if="currentView === 'list'"
       @openArticle="openArticle"
-      @openSquare="openSquare"
-      @openLogin="openLogin"
-      @logout="handleLogout"
+      @openSettings="openSettings"
     />
     <Reader
-      v-else-if="currentView === 'reader' && (currentArticleId || sharedArticle)"
+      v-else-if="currentView === 'reader' && currentArticleId"
       :articleId="currentArticleId || ''"
-      :sharedArticle="sharedArticle"
+      :sharedArticle="null"
       @back="goBack"
     />
-    <ArticleSquare
-      v-else-if="currentView === 'square'"
-      @close="currentView = 'list'"
-      @openArticle="openSharedArticle"
-    />
 
-    <AuthModal
-      v-if="showAuthModal"
-      @close="showAuthModal = false"
+    <Settings
+      v-if="showSettings"
+      @close="showSettings = false"
     />
   </div>
 </template>
 
-<style>
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  background: #f0fdfa;
-  min-height: 100vh;
-}
-
+<style scoped>
 .app {
   min-height: 100vh;
-}
-
-/* 全局滚动条样式 */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
 }
 </style>

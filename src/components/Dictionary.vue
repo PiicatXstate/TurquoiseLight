@@ -162,7 +162,7 @@ watch(() => props.initialQuery, (newQuery) => {
 .dictionary {
   position: fixed;
   inset: 0;
-  background: white;
+  background: var(--bg-primary);
   z-index: 1000;
   display: flex;
   flex-direction: column;
@@ -173,14 +173,14 @@ watch(() => props.initialQuery, (newQuery) => {
   justify-content: space-between;
   align-items: center;
   padding: 1rem;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .dict-header h2 {
   margin: 0;
   font-size: 1rem;
   font-weight: 500;
-  color: #1a1a1a;
+  color: var(--text-primary);
 }
 
 .close-btn {
@@ -193,7 +193,7 @@ watch(() => props.initialQuery, (newQuery) => {
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .close-btn svg {
@@ -202,21 +202,21 @@ watch(() => props.initialQuery, (newQuery) => {
 }
 
 .close-btn:hover {
-  background: #f0f0f0;
+  background: var(--bg-tertiary);
 }
 
 .search-box {
   display: flex;
   align-items: center;
   padding: 0.75rem 1rem;
-  background: #f8f9fa;
-  border-bottom: 1px solid #eee;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .search-icon {
   width: 18px;
   height: 18px;
-  color: #999;
+  color: var(--text-tertiary);
   margin-right: 0.5rem;
   flex-shrink: 0;
 }
@@ -227,11 +227,11 @@ watch(() => props.initialQuery, (newQuery) => {
   background: transparent;
   font-size: 0.9375rem;
   outline: none;
-  color: #1a1a1a;
+  color: var(--text-primary);
 }
 
 .search-box input::placeholder {
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .stats {
@@ -239,8 +239,8 @@ watch(() => props.initialQuery, (newQuery) => {
   gap: 1rem;
   padding: 0.5rem 1rem;
   font-size: 0.75rem;
-  color: #999;
-  border-bottom: 1px solid #eee;
+  color: var(--text-tertiary);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .results {
@@ -251,16 +251,16 @@ watch(() => props.initialQuery, (newQuery) => {
 .empty {
   text-align: center;
   padding: 3rem 1rem;
-  color: #999;
+  color: var(--text-tertiary);
   font-size: 0.875rem;
 }
 
 .section-title {
   padding: 0.75rem 1rem;
   font-size: 0.75rem;
-  color: #999;
-  background: #fafafa;
-  border-bottom: 1px solid #eee;
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .result-list,
@@ -271,7 +271,7 @@ watch(() => props.initialQuery, (newQuery) => {
 .result-item,
 .entry-item {
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--bg-tertiary);
 }
 
 .result-item:last-child,
@@ -283,15 +283,15 @@ watch(() => props.initialQuery, (newQuery) => {
 .entry-text {
   font-size: 0.9375rem;
   font-weight: 500;
-  color: #1a1a1a;
+  color: var(--text-primary);
   margin-bottom: 0.375rem;
 }
 
 .entry-count {
   display: inline-block;
   font-size: 0.625rem;
-  color: #2dd4bf;
-  background: #f0fdfa;
+  color: var(--primary-color);
+  background: var(--primary-50);
   padding: 0.125rem 0.375rem;
   border-radius: 4px;
   margin-left: 0.5rem;
@@ -305,17 +305,17 @@ watch(() => props.initialQuery, (newQuery) => {
 
 .meaning {
   font-size: 0.8125rem;
-  color: #666;
+  color: var(--text-secondary);
   line-height: 1.6;
   padding: 0.25rem 0;
 }
 
 .meaning-content {
-  color: #333;
+  color: var(--text-primary);
 }
 
 .meaning-source {
-  color: #999;
+  color: var(--text-tertiary);
   font-size: 0.75rem;
 }
 
