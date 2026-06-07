@@ -16,9 +16,6 @@ export function useAnnotations() {
   const editingAnnotationContent = ref('')
   const annotationError = ref('')
 
-  const expandedAnnotations = ref<Set<string>>(new Set())
-  const annotationLockMode = ref<'normal' | 'locked' | 'all-expanded' | 'all-collapsed'>('normal')
-
   async function handleAISelectionAnnotation(selectedText: string, article: Article | undefined, selectedStartIndex: number, selectedEndIndex: number) {
     if (!selectedText || !article) return
     
@@ -153,26 +150,6 @@ export function useAnnotations() {
     aiAnnotationSelectedText.value = ''
   }
 
-  function toggleAnnotation(annotationId: string) {
-    if (annotationLockMode.value !== 'normal') return
-    if (expandedAnnotations.value.has(annotationId)) {
-      expandedAnnotations.value.delete(annotationId)
-    } else {
-      expandedAnnotations.value.add(annotationId)
-    }
-  }
-
-  function setAnnotationMode(mode: 'normal' | 'locked' | 'all-expanded' | 'all-collapsed', article: Article | undefined) {
-    annotationLockMode.value = mode
-    if (mode === 'all-expanded' && article) {
-      article.annotations.forEach(ann => {
-        expandedAnnotations.value.add(ann.id)
-      })
-    } else if (mode === 'all-collapsed') {
-      expandedAnnotations.value.clear()
-    }
-  }
-
   function startEditAnnotation(ann: Annotation) {
     editingAnnotationId.value = ann.id
     editingAnnotationContent.value = ann.content
@@ -216,13 +193,9 @@ export function useAnnotations() {
     editingAnnotationId,
     editingAnnotationContent,
     annotationError,
-    expandedAnnotations,
-    annotationLockMode,
     handleAISelectionAnnotation,
     confirmAddAIAnnotation,
     cancelAIAnnotation,
-    toggleAnnotation,
-    setAnnotationMode,
     startEditAnnotation,
     saveEditAnnotation,
     cancelEditAnnotation,

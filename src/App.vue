@@ -1,15 +1,14 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { onMounted } from 'vue'
 import ArticleList from '@/components/ArticleList.vue'
 import Reader from '@/components/Reader.vue'
-import Settings from '@/components/Settings.vue'
 import { useGlobalSettings } from '@/composables/useGlobalSettings'
+import { ref } from 'vue'
 
 const { loadSettings } = useGlobalSettings()
 
 const currentView = ref<'list' | 'reader'>('list')
 const currentArticleId = ref<string | null>(null)
-const showSettings = ref(false)
 
 onMounted(() => {
   loadSettings()
@@ -24,10 +23,6 @@ function goBack() {
   currentView.value = 'list'
   currentArticleId.value = null
 }
-
-function openSettings() {
-  showSettings.value = true
-}
 </script>
 
 <template>
@@ -35,18 +30,12 @@ function openSettings() {
     <ArticleList
       v-if="currentView === 'list'"
       @openArticle="openArticle"
-      @openSettings="openSettings"
     />
     <Reader
       v-else-if="currentView === 'reader' && currentArticleId"
       :articleId="currentArticleId || ''"
       :sharedArticle="null"
       @back="goBack"
-    />
-
-    <Settings
-      v-if="showSettings"
-      @close="showSettings = false"
     />
   </div>
 </template>

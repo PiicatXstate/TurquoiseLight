@@ -152,7 +152,7 @@ function clearMessages() {
         </div>
       </div>
       
-      <div class="ai-body">
+      <div class="ai-body scrollbar-visible">
         <div class="messages">
           <div 
             v-for="(msg, index) in messages" 

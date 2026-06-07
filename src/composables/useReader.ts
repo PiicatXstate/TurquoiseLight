@@ -270,7 +270,7 @@ export function useReader(article: Ref<Article | undefined>, checkAnnotationExis
     showFontPicker.value = false
   }
 
-  function getFormattedContent(getAnnotationDepth: Function, expandedAnnotations: any, annotationLockMode: any) {
+  function getFormattedContent(getAnnotationDepth: Function) {
     if (!article.value) return ''
 
     const content = article.value.content
@@ -311,10 +311,6 @@ export function useReader(article: Ref<Article | undefined>, checkAnnotationExis
 
     let result = ''
 
-    // 检查是否为ref对象
-    const expandedAnnotationsSet = expandedAnnotations.value || expandedAnnotations
-    const annotationLockModeValue = annotationLockMode.value || annotationLockMode
-
     for (let i = 0; i < chars.length; i++) {
       if (annotationStarts.has(i)) {
         const startingAnns = annotationStarts.get(i)!
@@ -352,9 +348,8 @@ export function useReader(article: Ref<Article | undefined>, checkAnnotationExis
         const endingAnns = annotationEnds.get(i + 1)!
         for (const ann of endingAnns) {
           const depth = getAnnotationDepth(ann, annotations)
-          const isExpanded = annotationLockModeValue === 'locked' || annotationLockModeValue === 'all-expanded' || expandedAnnotationsSet.has(ann.id)
           result += `</span>`
-          result += `<span class="ann-note ann-depth-${depth}" data-id="${ann.id}" data-content="${ann.content.replace(/"/g, '&quot;')}" data-expanded="${isExpanded}"></span>`
+          result += `<span class="ann-note ann-depth-${depth}" data-id="${ann.id}" data-content="${ann.content.replace(/"/g, '&quot;')}" data-expanded="true"></span>`
         }
       }
     }

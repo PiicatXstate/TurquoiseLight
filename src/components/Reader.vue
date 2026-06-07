@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { SharedArticle } from '@/types'
 import { useArticles } from '@/composables/useArticles'
 import { useSettings } from '@/composables/useSettings'
 import { useChatSessions } from '@/composables/useChatSessions'
 import { useAIChat } from '@/composables/useAIChat'
 import { useAnnotations } from '@/composables/useAnnotations'
-import { useDictionary } from '@/composables/useDictionary'
 import { useReader } from '@/composables/useReader'
 import { renderMarkdown } from '@/utils/markdown'
+import Dictionary from './Dictionary.vue'
 
 const props = defineProps<{
   articleId: string
@@ -19,7 +19,7 @@ const emit = defineEmits<{
   (e: 'back'): void
 }>()
 
-const { articles, getArticle, addAnnotation, updateAnnotation, deleteAnnotation, checkAnnotationExists, addFormat, removeFormat, updateArticle, findDictionaryEntries } = useArticles()
+const { getArticle, addAnnotation, updateAnnotation, deleteAnnotation, checkAnnotationExists, addFormat, removeFormat, updateArticle, findDictionaryEntries } = useArticles()
 const { settings, updateSettings, resetSettings } = useSettings()
 
 const article = computed(() => {
@@ -47,7 +47,6 @@ const isSharedArticle = computed(() => !!props.sharedArticle)
 const chatSession = useChatSessions(props.articleId)
 const aiChat = useAIChat()
 const annotations = useAnnotations()
-const dictionary = useDictionary(articles)
 const reader = useReader(article, checkAnnotationExists, addFormat, removeFormat)
 
 // 从各个composable中解构需要的状态和方法
@@ -90,25 +89,14 @@ const {
   editingAnnotationId,
   editingAnnotationContent,
   annotationError,
-  expandedAnnotations,
-  annotationLockMode,
   handleAISelectionAnnotation,
   confirmAddAIAnnotation,
   cancelAIAnnotation,
-  toggleAnnotation,
-  setAnnotationMode,
   startEditAnnotation,
   saveEditAnnotation,
   cancelEditAnnotation,
   getAnnotationDepth
 } = annotations
-
-const {
-  dictionaryQuery,
-  dictionarySearchResults,
-  dictionaryAllAnnotations,
-  dictionaryStats
-} = dictionary
 
 const {
   showSettings,
@@ -150,6 +138,8 @@ const {
   startResize,
   startSplitResize
 } = reader
+
+const dictionaryInitialQuery = ref('')
 
 // 监听AI聊天面板的显示状态，保存和恢复滚动位置
 watch(showAIChat, (newValue, oldValue) => {
@@ -248,12 +238,12 @@ function selectFontWrapper(font: string) {
 
 // 处理内容点击
 function handleContentClickWrapper(e: MouseEvent | TouchEvent) {
-  handleContentClick(e, toggleAnnotation)
+  handleContentClick(e, () => {})
 }
 
 // 获取格式化内容
 function getFormattedContentWrapper() {
-  return getFormattedContent(getAnnotationDepth, expandedAnnotations, annotationLockMode)
+  return getFormattedContent(getAnnotationDepth)
 }
 
 // 处理AI关于选中内容的询问
@@ -417,7 +407,7 @@ function toggleAIChat() {
     </header>
 
     <div class="body" :class="{ 'with-panel': showSettings || showAnnotations || showAIChat || showDictionary || splitPanelMode }">
-      <div class="content-wrapper" :style="{ marginRight: (showSettings || showAnnotations || showAIChat || showDictionary || splitPanelMode) ? sidebarWidth + 'px' : '0' }">
+      <div class="content-wrapper scrollbar-visible" :style="{ marginRight: (showSettings || showAnnotations || showAIChat || showDictionary || splitPanelMode) ? sidebarWidth + 'px' : '0' }">
         <div v-if="isEditing" class="editor">
           <textarea
             v-model="editContent"
@@ -463,7 +453,7 @@ function toggleAIChat() {
             </button>
           </div>
           <div class="resize-handle" @mousedown="startResize"></div>
-          <div class="panel-body">
+          <div class="panel-body scrollbar-visible">
             <div class="setting">
               <div class="setting-label">
                 <span>字体大小</span>
@@ -540,57 +530,7 @@ function toggleAIChat() {
             </button>
           </div>
           <div class="resize-handle" @mousedown="startResize"></div>
-          <div class="ann-controls">
-            <button 
-              class="ann-mode-btn" 
-              :class="{ active: annotationLockMode === 'normal' }" 
-              @click="setAnnotationMode('normal', article)"
-              title="正常模式"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12,20h9"></path>
-                <path d="M16.5,3.5a2.121,2.121,0,0,1,3,3L7,19,3,20l1-4L16.5,3.5Z"></path>
-              </svg>
-            </button>
-            <button 
-              class="ann-mode-btn" 
-              :class="{ active: annotationLockMode === 'locked' }" 
-              @click="setAnnotationMode('locked', article)"
-              title="锁定展开"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                <path d="M7,11V7a5,5,0,0,1,10,0v4"></path>
-              </svg>
-            </button>
-            <button 
-              class="ann-mode-btn" 
-              :class="{ active: annotationLockMode === 'all-expanded' }" 
-              @click="setAnnotationMode('all-expanded', article)"
-              title="全部展开"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="15,3 21,3 21,9"></polyline>
-                <polyline points="9,21 3,21 3,15"></polyline>
-                <line x1="21" y1="3" x2="14" y2="10"></line>
-                <line x1="3" y1="21" x2="10" y2="14"></line>
-              </svg>
-            </button>
-            <button 
-              class="ann-mode-btn" 
-              :class="{ active: annotationLockMode === 'all-collapsed' }" 
-              @click="setAnnotationMode('all-collapsed', article)"
-              title="全部折叠"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="4,14 10,14 10,20"></polyline>
-                <polyline points="20,10 14,10 14,4"></polyline>
-                <line x1="14" y1="10" x2="21" y2="3"></line>
-                <line x1="3" y1="21" x2="10" y2="14"></line>
-              </svg>
-            </button>
-          </div>
-          <div class="panel-body">
+          <div class="panel-body scrollbar-visible">
             <div v-if="selectedText && !isSharedArticle" class="new-ann">
               <div class="new-ann-header">
                 <span class="new-ann-label">选中</span>
@@ -663,70 +603,13 @@ function toggleAIChat() {
 
       <Transition name="panel">
         <div v-if="showDictionary" class="panel" :style="{ width: sidebarWidth + 'px' }">
-          <div class="panel-header">
-            <span>词典</span>
-            <button class="panel-close" @click="showDictionary = false">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-            </button>
-          </div>
           <div class="resize-handle" @mousedown="startResize"></div>
-          <div class="search-box">
-            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="11" cy="11" r="8"></circle>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            </svg>
-            <input 
-              v-model="dictionaryQuery" 
-              type="text" 
-              placeholder="搜索字或词..." 
-              @keyup.escape="showDictionary = false"
-            />
-          </div>
-          <div class="stats">
-            <span>{{ dictionaryStats.articleCount }} 篇文章</span>
-            <span>{{ dictionaryStats.uniqueTexts }} 个词条</span>
-            <span>{{ dictionaryStats.totalAnnotations }} 条注释</span>
-          </div>
-          <div class="panel-body">
-            <div v-if="dictionaryQuery.trim()" class="result-list">
-              <div v-if="dictionarySearchResults.length === 0" class="empty">
-                未找到"{{ dictionaryQuery }}"相关注释
-              </div>
-              <div v-else class="result-item" v-for="result in dictionarySearchResults" :key="result.text">
-                <div class="result-text">"{{ result.text }}"</div>
-                <div class="result-meanings">
-                  <div class="meaning" v-for="(meaning, idx) in result.meanings" :key="idx">
-                    <span class="meaning-content">{{ meaning.content }}</span>
-                    <span class="meaning-source">——《{{ meaning.articleTitle }}》</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div v-else class="all-entries">
-              <div class="section-title">全部词条</div>
-              <div v-if="dictionaryAllAnnotations.length === 0" class="empty">
-                暂无注释
-              </div>
-              <div v-else class="entry-list">
-                <div class="entry-item" v-for="entry in dictionaryAllAnnotations" :key="entry.text">
-                  <div class="entry-text">"{{ entry.text }}"</div>
-                  <div class="entry-count" v-if="entry.meanings.length > 1">
-                    {{ entry.meanings.length }} 种释义
-                  </div>
-                  <div class="entry-meanings">
-                    <div class="meaning" v-for="(meaning, idx) in entry.meanings" :key="idx">
-                      <span class="meaning-content">{{ meaning.content }}</span>
-                      <span class="meaning-source">——《{{ meaning.articleTitle }}》</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <Dictionary 
+            :initial-query="dictionaryInitialQuery"
+            :embedded="true"
+            @close="showDictionary = false"
+            @open-article="(_id: string) => { showDictionary = false }"
+          />
         </div>
       </Transition>
 
@@ -744,7 +627,7 @@ function toggleAIChat() {
                 </svg>
               </button>
             </div>
-            <div class="split-body">
+            <div class="split-body scrollbar-visible">
               <div v-if="selectedText && !isSharedArticle" class="new-ann">
                 <div class="new-ann-header">
                   <span class="new-ann-label">选中</span>
@@ -1238,7 +1121,7 @@ function toggleAIChat() {
             <span>下划线</span>
           </button>
           <div class="menu-divider"></div>
-          <button class="menu-item" @click="dictionaryQuery = selectedText; showDictionary = true; showSettings = false; showAnnotations = false; showAIChat = false; hideContextMenu()">
+          <button class="menu-item" @click="dictionaryInitialQuery = selectedText; showDictionary = true; showSettings = false; showAnnotations = false; showAIChat = false; hideContextMenu()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M4,19.5A2.5,2.5,0,0,1,6.5,17H20"></path>
               <path d="M6.5,2H20V22H6.5A2.5,2.5,0,0,1,4,19.5V4.5A2.5,2.5,0,0,1,6.5,2Z"></path>
@@ -1345,6 +1228,15 @@ function toggleAIChat() {
   position: sticky;
   top: 0;
   z-index: 50;
+  -webkit-app-region: drag;
+}
+
+.header button,
+.header .btn-icon,
+.header .btn-text,
+.header .btn-primary,
+.header .shared-badge {
+  -webkit-app-region: no-drag;
 }
 
 .back-btn {
@@ -1584,47 +1476,37 @@ function toggleAIChat() {
 }
 
 .content :deep(.ann-highlight) {
-  background: rgba(245, 158, 11, 0.12);
+  background: linear-gradient(to top, rgba(100, 116, 139, 0.3)) 0 100% / 100% 50% no-repeat;
   cursor: pointer;
-  border-radius: 2px;
   transition: background 0.15s;
 }
 
 .content :deep(.ann-highlight:hover) {
-  background: rgba(245, 158, 11, 0.2);
+  background: linear-gradient(to top, rgba(100, 116, 139, 0.45)) 0 100% / 100% 50% no-repeat;
 }
 
 .content :deep(.ann-highlight.ann-depth-1) {
-  background: rgba(59, 130, 246, 0.1);
+  background: linear-gradient(to top, rgba(100, 116, 139, 0.25)) 0 100% / 100% 50% no-repeat;
 }
 
 .content :deep(.ann-highlight.ann-depth-1:hover) {
-  background: rgba(59, 130, 246, 0.18);
+  background: linear-gradient(to top, rgba(100, 116, 139, 0.4)) 0 100% / 100% 50% no-repeat;
 }
 
 .content :deep(.ann-highlight.ann-depth-2) {
-  background: rgba(168, 85, 247, 0.1);
+  background: linear-gradient(to top, rgba(100, 116, 139, 0.2)) 0 100% / 100% 50% no-repeat;
 }
 
 .content :deep(.ann-highlight.ann-depth-2:hover) {
-  background: rgba(168, 85, 247, 0.18);
+  background: linear-gradient(to top, rgba(100, 116, 139, 0.35)) 0 100% / 100% 50% no-repeat;
 }
 
 .content :deep(.ann-note) {
   display: inline;
   cursor: pointer;
-  margin-left: 1px;
+  margin-left: 2px;
   font-size: var(--ann-font-size, 14px);
-  vertical-align: sub;
-  color: var(--warning-color);
-}
-
-.content :deep(.ann-note.ann-depth-1) {
-  color: var(--info-color);
-}
-
-.content :deep(.ann-note.ann-depth-2) {
-  color: var(--info-color);
+  color: var(--text-secondary);
 }
 
 .content :deep(.ann-note::before) {
@@ -1635,12 +1517,20 @@ function toggleAIChat() {
   content: none;
 }
 
+.content :deep(.ann-note[data-expanded="true"]) {
+  display: inline;
+  padding: 1px 4px;
+  background: rgba(100, 116, 139, 0.15);
+  border-radius: 3px;
+  letter-spacing: 0;
+}
+
 .content :deep(.ann-note[data-expanded="true"]::before) {
-  content: "【";
+  content: none;
 }
 
 .content :deep(.ann-note[data-expanded="true"]::after) {
-  content: attr(data-content) "】";
+  content: attr(data-content);
 }
 
 .panel {
@@ -1649,11 +1539,16 @@ function toggleAIChat() {
   top: 49px;
   bottom: 0;
   width: 280px;
-  background: var(--bg-primary);
-  border-left: 1px solid var(--border-color);
+  background: #f5f5f7;
+  border-left: 0.5px solid rgba(0, 0, 0, 0.08);
   display: flex;
   flex-direction: column;
   z-index: 40;
+}
+
+:global(.dark-mode) .panel {
+  background: #1c1c1e;
+  border-left-color: rgba(255, 255, 255, 0.08);
 }
 
 .split-panel {
@@ -1670,66 +1565,86 @@ function toggleAIChat() {
 
 .split-header {
   flex-shrink: 0;
-  padding: 0.5rem 0.75rem;
-  font-size: 0.75rem;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .split-body {
   flex: 1;
   overflow-y: auto;
-  padding: 0.5rem;
+  padding: 8px;
 }
 
 .split-body.messages {
-  padding: 0.5rem;
+  padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 8px;
 }
 
 .split-footer {
   flex-shrink: 0;
   display: flex;
-  gap: 0.375rem;
-  padding: 0.375rem 0.5rem;
-  border-top: 1px solid var(--border-color);
-  background: var(--bg-secondary);
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 0.5px solid rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+:global(.dark-mode) .split-footer {
+  border-top-color: rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .split-footer textarea {
   flex: 1;
-  padding: 0.375rem 0.5rem;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  font-size: 0.75rem;
+  padding: 8px 10px;
+  border: 0.5px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  font-size: 13px;
   resize: none;
-  min-height: 28px;
-  max-height: 60px;
+  min-height: 32px;
+  max-height: 80px;
+  background: #ffffff;
+  color: #1d1d1f;
+}
+
+:global(.dark-mode) .split-footer textarea {
+  background: #2c2c2e;
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #f5f5f7;
 }
 
 .split-footer textarea:focus {
   outline: none;
   border-color: var(--primary-color);
+  box-shadow: 0 0 0 4px rgba(var(--primary-color-rgb), 0.12);
 }
 
 .split-footer .btn-primary {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: 8px;
+  background: var(--primary-color);
+}
+
+.split-footer .btn-primary:hover {
+  background: var(--primary-600);
 }
 
 .split-footer .btn-primary svg {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 
 .split-divider-v {
   width: 4px;
-  background: var(--border-color);
+  background: rgba(0, 0, 0, 0.08);
   cursor: col-resize;
   flex-shrink: 0;
   transition: background 0.15s;
@@ -1739,93 +1654,72 @@ function toggleAIChat() {
   background: var(--primary-color);
 }
 
-.ann-controls {
-  display: flex;
-  gap: 0.25rem;
-  padding: 0.5rem 1rem;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.ann-mode-btn {
-  flex: 1;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-secondary);
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  color: var(--text-tertiary);
-  transition: all 0.15s;
-}
-
-.ann-mode-btn svg {
-  width: 14px;
-  height: 14px;
-}
-
-.ann-mode-btn:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-}
-
-.ann-mode-btn.active {
-  background: var(--primary-50);
-  color: var(--primary-color);
-}
-
 .panel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--border-color);
-  font-size: 0.8125rem;
+  padding: 12px 16px;
+  border-bottom: 0.5px solid rgba(0, 0, 0, 0.08);
+  font-size: 14px;
   font-weight: 500;
-  color: var(--text-primary);
+  color: #1d1d1f;
+}
+
+:global(.dark-mode) .panel-header {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+  color: #f5f5f7;
 }
 
 .panel-close {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: 8px;
   cursor: pointer;
-  color: var(--text-tertiary);
+  color: #86868b;
+  transition: all 0.15s ease;
+}
+
+:global(.dark-mode) .panel-close {
+  color: #86868b;
 }
 
 .panel-close svg {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 
 .panel-close:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.06);
+  color: #1d1d1f;
+}
+
+:global(.dark-mode) .panel-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f5f5f7;
 }
 
 .panel-body {
   flex: 1;
   overflow-y: auto;
-  padding: 1rem;
+  padding: 16px;
 }
 
 .setting {
-  margin-bottom: 1rem;
+  margin-bottom: 20px;
 }
 
 .setting-label {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 0.375rem;
-  font-size: 0.75rem;
-  color: var(--text-secondary);
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #86868b;
 }
 
 .setting-value {
@@ -1837,104 +1731,139 @@ function toggleAIChat() {
   width: 100%;
   height: 4px;
   border-radius: 2px;
-  background: var(--border-color);
+  background: #e9e9eb;
   outline: none;
   -webkit-appearance: none;
 }
 
+:global(.dark-mode) .setting input[type="range"] {
+  background: #3a3a3c;
+}
+
 .setting input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  background: var(--primary-color);
+  background: #ffffff;
   cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  border: 0.5px solid rgba(0, 0, 0, 0.1);
 }
 
 .font-select {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.5rem 0.625rem;
-  background: var(--bg-secondary);
-  border-radius: 6px;
-  font-size: 0.75rem;
+  padding: 10px 12px;
+  background: #ffffff;
+  border: 0.5px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  font-size: 13px;
   cursor: pointer;
-  color: var(--text-primary);
+  color: #1d1d1f;
+  transition: all 0.2s ease;
+}
+
+:global(.dark-mode) .font-select {
+  background: #2c2c2e;
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #f5f5f7;
+}
+
+.font-select:hover {
+  border-color: var(--primary-color);
 }
 
 .font-select svg {
-  width: 14px;
-  height: 14px;
-  color: var(--text-tertiary);
+  width: 16px;
+  height: 16px;
+  color: #86868b;
 }
 
 .font-dropdown {
-  margin-top: 0.375rem;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
+  margin-top: 8px;
+  background: #ffffff;
+  border: 0.5px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
   max-height: 180px;
   overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+:global(.dark-mode) .font-dropdown {
+  background: #2c2c2e;
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 .font-group {
-  padding: 0.25rem 0;
+  padding: 4px 0;
 }
 
 .font-group-title {
-  padding: 0.25rem 0.625rem;
-  font-size: 0.625rem;
-  color: var(--text-tertiary);
+  padding: 6px 12px;
+  font-size: 11px;
+  color: #86868b;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
 .font-option {
-  padding: 0.375rem 0.625rem;
-  font-size: 0.75rem;
+  padding: 8px 12px;
+  font-size: 13px;
   cursor: pointer;
-  color: var(--text-primary);
+  color: #1d1d1f;
+  transition: background 0.15s ease;
+}
+
+:global(.dark-mode) .font-option {
+  color: #f5f5f7;
 }
 
 .font-option:hover {
-  background: var(--bg-secondary);
+  background: #f5f5f7;
+}
+
+:global(.dark-mode) .font-option:hover {
+  background: #3a3a3c;
 }
 
 .font-option.active {
-  background: var(--primary-50);
+  background: rgba(var(--primary-color-rgb), 0.08);
   color: var(--primary-color);
 }
 
 .reset-btn {
   width: 100%;
-  padding: 0.5rem;
-  background: var(--bg-secondary);
+  padding: 10px 16px;
+  background: transparent;
   border: none;
-  border-radius: 6px;
-  font-size: 0.75rem;
-  color: var(--text-secondary);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--primary-color);
   cursor: pointer;
-  margin-top: 0.5rem;
+  margin-top: 8px;
+  transition: background 0.15s ease;
 }
 
 .reset-btn:hover {
-  background: var(--bg-tertiary);
+  background: rgba(var(--primary-color-rgb), 0.08);
 }
 
 .new-ann {
-  background: var(--primary-50);
-  border-radius: 6px;
-  padding: 0.625rem;
-  margin-bottom: 0.75rem;
+  background: rgba(var(--primary-color-rgb), 0.08);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 0.5px solid rgba(var(--primary-color-rgb), 0.15);
 }
 
 .new-ann-header {
-  margin-bottom: 0.375rem;
+  margin-bottom: 6px;
 }
 
 .new-ann-label {
-  font-size: 0.625rem;
+  font-size: 11px;
   color: var(--primary-color);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -1942,31 +1871,41 @@ function toggleAIChat() {
 
 .new-ann-text {
   display: block;
-  font-size: 0.75rem;
-  color: var(--text-primary);
+  font-size: 13px;
+  color: #1d1d1f;
   font-weight: 500;
-  margin-top: 0.125rem;
+  margin-top: 2px;
+}
+
+:global(.dark-mode) .new-ann-text {
+  color: #f5f5f7;
 }
 
 .dict-suggestions {
-  margin-bottom: 0.5rem;
-  background: var(--bg-primary);
-  border-radius: 4px;
-  padding: 0.5rem;
+  margin-bottom: 8px;
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 8px;
+  border: 0.5px solid rgba(0, 0, 0, 0.08);
+}
+
+:global(.dark-mode) .dict-suggestions {
+  background: #2c2c2e;
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
 .dict-suggestions-title {
-  font-size: 0.625rem;
+  font-size: 11px;
   color: var(--primary-color);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  margin-bottom: 0.375rem;
+  margin-bottom: 6px;
 }
 
 .dict-suggestions-list {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 4px;
   max-height: 120px;
   overflow-y: auto;
 }
@@ -1975,14 +1914,18 @@ function toggleAIChat() {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  padding: 0.375rem 0.5rem;
-  background: var(--bg-secondary);
-  border: 1px solid transparent;
-  border-radius: 4px;
+  padding: 8px 10px;
+  background: #f5f5f7;
+  border: 0.5px solid transparent;
+  border-radius: 6px;
   cursor: pointer;
   text-align: left;
   width: 100%;
   transition: all 0.15s;
+}
+
+:global(.dark-mode) .dict-suggestion-item {
+  background: #3a3a3c;
 }
 
 .dict-suggestion-item:hover {
@@ -2281,7 +2224,6 @@ function toggleAIChat() {
     border-top: 1px solid var(--border-color);
     border-radius: 16px 16px 0 0;
     padding-bottom: env(safe-area-inset-bottom);
-    transform: translateY(100%);
     transition: transform 0.3s ease;
   }
 
@@ -2290,8 +2232,8 @@ function toggleAIChat() {
     transform: translateY(100%);
   }
 
-  .panel-enter-to,
-  .panel-leave-from {
+  .panel-enter-active,
+  .panel-leave-active {
     transform: translateY(0);
   }
 
@@ -2315,14 +2257,6 @@ function toggleAIChat() {
     right: 1rem !important;
   }
 
-  .ann-controls {
-    flex-wrap: wrap;
-  }
-
-  .ann-mode-btn {
-    min-width: calc(25% - 0.2rem);
-  }
-
   .new-ann {
     padding: 0.5rem;
   }
@@ -2336,27 +2270,7 @@ function toggleAIChat() {
   }
 }
 
-/* 全局滚动条样式 */
-  ::-webkit-scrollbar {
-    width: 4px;
-    height: 4px;
-  }
-
-  ::-webkit-scrollbar-track {
-    background: transparent;
-    border-radius: 2px;
-  }
-
-  ::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.15);
-    border-radius: 2px;
-  }
-
-  ::-webkit-scrollbar-thumb:hover {
-    background: rgba(0, 0, 0, 0.25);
-  }
-
-  /* 侧边栏宽度调节样式 */
+/* 侧边栏宽度调节样式 */
   .resize-handle {
     position: absolute;
     left: 0;
@@ -3230,19 +3144,26 @@ function toggleAIChat() {
     }
 
     .content :deep(.ann-highlight) {
-      background: rgba(245, 158, 11, 0.15);
+      background: linear-gradient(to top, rgba(100, 116, 139, 0.3)) 0 100% / 100% 50% no-repeat;
       print-color-adjust: exact;
       -webkit-print-color-adjust: exact;
     }
 
+    .content :deep(.ann-note) {
+      display: inline;
+      padding: 0 2pt;
+      background: rgba(100, 116, 139, 0.15);
+      border-radius: 2pt;
+      font-size: 10pt;
+      letter-spacing: 0;
+    }
+
     .content :deep(.ann-note::before) {
-      content: "【";
-      color: var(--warning-color);
+      content: none;
     }
 
     .content :deep(.ann-note::after) {
-      content: attr(data-content) "】";
-      display: inline;
+      content: attr(data-content);
       color: var(--text-secondary);
     }
   }

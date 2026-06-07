@@ -4,10 +4,11 @@ import { useArticles } from '@/composables/useArticles'
 import Logo from '@/components/Logo.vue'
 import Dictionary from '@/components/Dictionary.vue'
 import { generateId, saveArticles, exportData, importData } from '@/utils/storage'
+import { parseMarkup, markupToJson, isValidMarkup, type ArticleJsonFormat } from '@/utils/annotationMarkup'
+import { useGlobalSettings, presetModels } from '@/composables/useGlobalSettings'
 
 const emit = defineEmits<{
   (e: 'openArticle', id: string): void
-  (e: 'openSettings'): void
 }>()
 
 const {
@@ -34,12 +35,23 @@ const showDictionary = ref(false)
 const showNewFolderModal = ref(false)
 const showMoveModal = ref(false)
 const showMobileSidebar = ref(false)
+const showMarkupConverter = ref(false)
 const movingArticleId = ref<string | null>(null)
 const newTitle = ref('')
 const newContent = ref('')
 const newFolderName = ref('')
-const currentView = ref<'all' | 'favorites' | 'trash' | 'folder'>('all')
+const currentView = ref<'all' | 'favorites' | 'trash' | 'folder' | 'settings'>('all')
 const currentFolderId = ref<string | null>(null)
+
+const { settings } = useGlobalSettings()
+const showApiKey = ref(false)
+
+const converterTitle = ref('')
+const converterMarkup = ref('')
+const converterResult = ref<ArticleJsonFormat | null>(null)
+const converterError = ref('')
+const converterPreview = ref('')
+const converterPlaceholder = '粘贴带 [ann] 标记的文本，例如：\n子曰：[ann="学过的内容按时复习"]学而时习之[/ann]，[ann="不也是很快乐吗"]不亦说乎[/ann]？'
 
 const displayedArticles = computed(() => {
   if (currentView.value === 'favorites') {
@@ -132,7 +144,7 @@ function handleMoveToFolder(folderId: string | null) {
   }
 }
 
-function switchView(view: 'all' | 'favorites' | 'trash' | 'folder', folderId?: string) {
+function switchView(view: 'all' | 'favorites' | 'trash' | 'folder' | 'settings', folderId?: string) {
   currentView.value = view
   currentFolderId.value = folderId || null
   showMobileSidebar.value = false
@@ -230,6 +242,130 @@ function handleImportAll(event: Event) {
   reader.readAsText(file)
   ;(event.target as HTMLInputElement).value = ''
 }
+
+function convertMarkupToJson() {
+  converterError.value = ''
+  converterResult.value = null
+  converterPreview.value = ''
+
+  const markup = converterMarkup.value.trim()
+  const title = converterTitle.value.trim() || '未命名文章'
+
+  if (!markup) {
+    converterError.value = '请输入带注释标记的文本'
+    return
+  }
+
+  const validation = isValidMarkup(markup)
+  if (!validation.valid) {
+    converterError.value = validation.error || '标记格式错误'
+    return
+  }
+
+  try {
+    const result = markupToJson(markup, title)
+    converterResult.value = result
+
+    const parsed = parseMarkup(markup, title)
+    converterPreview.value = `解析结果：
+- 文章标题：${parsed.title}
+- 正文长度：${parsed.plainContent.length} 字
+- 注释数量：${parsed.annotations.length} 条
+
+注释列表：
+${parsed.annotations.map((ann, idx) => 
+  `${idx + 1}. "${ann.text}" → ${ann.content}`
+).join('\n')}`
+
+  } catch (e) {
+    converterError.value = '转换失败：' + (e as Error).message
+  }
+}
+
+function downloadJson() {
+  if (!converterResult.value) return
+
+  const blob = new Blob([JSON.stringify(converterResult.value, null, 2)], { 
+    type: 'application/json' 
+  })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  const safeTitle = converterResult.value.article.title.replace(/[\\/:*?"<>|]/g, '_')
+  a.download = `${safeTitle}.json`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function importConvertedArticle() {
+  if (!converterResult.value) {
+    converterError.value = '请先转换文本'
+    return
+  }
+
+  try {
+    const newArticle = {
+      id: generateId(),
+      title: converterResult.value.article.title,
+      content: converterResult.value.article.content,
+      annotations: converterResult.value.article.annotations.map(ann => ({
+        ...ann,
+        id: generateId()
+      })),
+      formats: [],
+      folderId: currentView.value === 'folder' ? currentFolderId.value : null,
+      isFavorite: false,
+      isDeleted: false,
+      deletedAt: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    }
+
+    articles.value.unshift(newArticle)
+    saveArticles(articles.value)
+    
+    alert(`成功导入文章，包含 ${newArticle.annotations.length} 条注释`)
+    
+    showMarkupConverter.value = false
+    converterTitle.value = ''
+    converterMarkup.value = ''
+    converterResult.value = null
+    converterError.value = ''
+    converterPreview.value = ''
+  } catch (e) {
+    converterError.value = '导入失败：' + (e as Error).message
+  }
+}
+
+function closeConverter() {
+  showMarkupConverter.value = false
+  converterTitle.value = ''
+  converterMarkup.value = ''
+  converterResult.value = null
+  converterError.value = ''
+  converterPreview.value = ''
+}
+
+// 窗口控制方法
+const minimize = () => {
+  if (window.electron) {
+    window.electron.minimize()
+  }
+}
+
+const maximize = () => {
+  if (window.electron) {
+    window.electron.maximize()
+  }
+}
+
+const close = () => {
+  if (window.electron) {
+    window.electron.close()
+  }
+}
+
+
 </script>
 
 <template>
@@ -238,7 +374,7 @@ function handleImportAll(event: Event) {
       <Logo />
     </div>
 
-    <div class="sidebar" :class="{ 'mobile-open': showMobileSidebar }">
+    <div class="sidebar scrollbar-hidden" :class="{ 'mobile-open': showMobileSidebar }">
       <div class="sidebar-logo">
         <Logo />
       </div>
@@ -279,21 +415,6 @@ function handleImportAll(event: Event) {
 
       <div class="sidebar-section">
         <div class="section-header">
-          <span>导入</span>
-        </div>
-        <label class="nav-item import-label">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21,15v4a2,2,0,0,1-2,2H5a2,2,0,0,1-2-2v-4"></path>
-            <polyline points="17,8 12,3 7,8"></polyline>
-            <line x1="12" y1="3" x2="12" y2="15"></line>
-          </svg>
-          <span>导入文章</span>
-          <input type="file" accept=".json" @change="handleImport" hidden />
-        </label>
-      </div>
-
-      <div class="sidebar-section">
-        <div class="section-header">
           <span>文件夹</span>
           <button class="section-btn" @click="showNewFolderModal = true" title="新建文件夹">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -325,7 +446,28 @@ function handleImportAll(event: Event) {
         </div>
       </div>
 
+      <div class="sidebar-spacer"></div>
+
       <div class="sidebar-section settings-section">
+        <div class="section-header">
+          <span>数据</span>
+        </div>
+        <label class="nav-item import-label">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21,15v4a2,2,0,0,1-2,2H5a2,2,0,0,1-2-2v-4"></path>
+            <polyline points="17,8 12,3 7,8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+          </svg>
+          <span>导入文章</span>
+          <input type="file" accept=".json" @change="handleImport" hidden />
+        </label>
+        <button class="nav-item" @click="showMarkupConverter = true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 20h9"></path>
+            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+          </svg>
+          <span>注释转换</span>
+        </button>
         <button class="nav-item" @click="handleExportAll">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -334,7 +476,6 @@ function handleImportAll(event: Event) {
           </svg>
           <span>导出全部</span>
         </button>
-        
         <button class="nav-item" @click="($refs.importAllInput as HTMLInputElement).click()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -350,8 +491,10 @@ function handleImportAll(event: Event) {
           @change="handleImportAll"
           style="display: none"
         >
-        
-        <button class="nav-item" @click="emit('openSettings')">
+      </div>
+
+      <div class="sidebar-section settings-section">
+        <button class="nav-item" :class="{ active: currentView === 'settings' }" @click="switchView('settings')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="3"></circle>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
@@ -361,18 +504,167 @@ function handleImportAll(event: Event) {
       </div>
     </div>
 
+    <!-- 窗口控制按钮 - 绝对定位固定在右上角 -->
+    <div class="window-controls-fixed">
+      <button class="window-control-btn" @click="minimize" title="最小化">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="4" y1="12" x2="20" y2="12"></line>
+        </svg>
+      </button>
+      <button class="window-control-btn" @click="maximize" title="最大化">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="4" y="4" width="16" height="16"></rect>
+        </svg>
+      </button>
+      <button class="window-control-btn close" @click="close" title="关闭">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+
     <main class="main-content">
-      <div class="view-header">
-        <h2 v-if="currentView === 'all'">全部文章</h2>
-        <h2 v-else-if="currentView === 'favorites'">收藏</h2>
-        <h2 v-else-if="currentView === 'trash'">回收站</h2>
-        <h2 v-else-if="currentFolder">{{ currentFolder.name }}</h2>
+      <template v-if="currentView === 'settings'">
+        <div class="settings-panel">
+          <section class="settings-section">
+            <h3>AI 助手</h3>
+            
+            <div class="settings-card">
+              <div class="setting-row">
+                <div class="setting-info">
+                  <span class="setting-label">AI 模型</span>
+                  <span class="setting-desc">选择用于 AI 聊天和注释功能</span>
+                </div>
+                <div class="setting-control">
+                  <select v-model="settings.aiModel" class="setting-select">
+                    <option v-for="model in presetModels" :key="model.value" :value="model.value">
+                      {{ model.name }}
+                    </option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="setting-row" v-if="settings.aiModel === 'custom'">
+                <div class="setting-info">
+                  <span class="setting-label">自定义模型名称</span>
+                  <span class="setting-desc">输入自定义 AI 模型名称</span>
+                </div>
+                <div class="setting-control">
+                  <input 
+                    type="text" 
+                    v-model="settings.customModelName"
+                    placeholder="gpt-4o-mini"
+                    class="setting-input"
+                  />
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <span class="setting-label">思考模型</span>
+                  <span class="setting-desc">解析 AI 的思考过程</span>
+                </div>
+                <div class="setting-control">
+                  <label class="toggle">
+                    <input type="checkbox" v-model="settings.isThinkingModel">
+                    <span class="toggle-track">
+                      <span class="toggle-thumb"></span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <h3>API 配置</h3>
+            
+            <div class="settings-card">
+              <div class="setting-row">
+                <div class="setting-info">
+                  <span class="setting-label">API Key</span>
+                  <span class="setting-desc">你的 API 密钥</span>
+                </div>
+                <div class="setting-control">
+                  <div class="api-key-wrapper">
+                    <input 
+                      :type="showApiKey ? 'text' : 'password'" 
+                      v-model="settings.apiKey"
+                      placeholder="输入你的 API Key"
+                      class="setting-input api-input"
+                    />
+                    <button class="api-toggle" @click="showApiKey = !showApiKey">
+                      <svg v-if="!showApiKey" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                        <circle cx="12" cy="12" r="3"></circle>
+                      </svg>
+                      <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                        <line x1="1" y1="1" x2="23" y2="23"></line>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <span class="setting-label">API 地址</span>
+                  <span class="setting-desc">API 基础 URL</span>
+                </div>
+                <div class="setting-control">
+                  <input 
+                    type="text" 
+                    v-model="settings.apiBaseUrl"
+                    placeholder="https://api.siliconflow.cn/v1"
+                    class="setting-input"
+                  />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <h3>显示</h3>
+            
+            <div class="settings-card">
+              <div class="setting-row">
+                <div class="setting-info">
+                  <span class="setting-label">缩放</span>
+                  <span class="setting-desc">调整界面显示大小</span>
+                </div>
+                <div class="setting-control">
+                  <div class="scale-wrapper">
+                    <input 
+                      type="range" 
+                      v-model.number="settings.globalScale"
+                      min="0.8"
+                      max="1.5"
+                      step="0.05"
+                      class="scale-input"
+                    />
+                    <span class="scale-value">{{ Math.round(settings.globalScale * 100) }}%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </template>
+
+      <template v-else>
+        <div class="view-header">
+          <h2 v-if="currentView === 'all'">全部文章</h2>
+          <h2 v-else-if="currentView === 'favorites'">收藏</h2>
+          <h2 v-else-if="currentView === 'trash'">回收站</h2>
+          <h2 v-else-if="currentFolder">{{ currentFolder.name }}</h2>
+        </div>
         <button v-if="currentView === 'trash' && deletedArticles.length" class="empty-trash-btn" @click="handleEmptyTrash">
           清空回收站
         </button>
-      </div>
 
-      <div class="articles" v-if="displayedArticles.length > 0">
+        <div class="articles" v-if="displayedArticles.length > 0">
         <div
           v-for="article in displayedArticles"
           :key="article.id"
@@ -477,6 +769,7 @@ function handleImportAll(event: Event) {
         <h3 v-else>还没有文章</h3>
         <p v-if="currentView !== 'trash'">点击右下角按钮创建第一篇文言文笔记</p>
       </div>
+      </template>
     </main>
 
     <button class="fab dict" @click="showDictionary = true" title="词典">
@@ -631,12 +924,78 @@ function handleImportAll(event: Event) {
         </div>
       </Transition>
 
-      <Dictionary v-if="showDictionary" @close="showDictionary = false" />
+      <Transition name="modal">
+        <div v-if="showMarkupConverter" class="modal-overlay" @click.self="closeConverter">
+          <div class="modal markup-converter">
+            <div class="modal-header">
+              <h2>注释转换工具</h2>
+              <button class="modal-close" @click="closeConverter">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+            <div class="modal-body converter-body">
+              <div class="converter-section">
+                <div class="form-group">
+                  <label>文章标题</label>
+                  <input v-model="converterTitle" type="text" placeholder="例如：论语·学而" />
+                </div>
+                <div class="form-group">
+                  <label>带注释标记的文本</label>
+                  <textarea 
+                    v-model="converterMarkup" 
+                    :placeholder="converterPlaceholder"
+                    rows="10"
+                  ></textarea>
+                </div>
+                <div class="converter-tip">
+                  <strong>使用说明：</strong><br/>
+                  格式：<code>[ann="注释内容"]被注释的文本[/ann]</code><br/>
+                  可以使用AI生成带标记的文本，然后在此处转换导入。
+                </div>
+                <button class="btn-primary convert-btn" @click="convertMarkupToJson" :disabled="!converterMarkup.trim()">
+                  转换文本
+                </button>
+                <div v-if="converterError" class="converter-error">{{ converterError }}</div>
+              </div>
+
+              <div class="converter-section" v-if="converterResult">
+                <div class="section-title">转换结果</div>
+                <pre class="converter-preview">{{ converterPreview }}</pre>
+                
+                <div class="section-title">JSON 预览</div>
+                <pre class="json-preview">{{ JSON.stringify(converterResult, null, 2) }}</pre>
+
+                <div class="converter-actions">
+                  <button class="btn-secondary" @click="downloadJson">
+                    下载 JSON
+                  </button>
+                  <button class="btn-primary" @click="importConvertedArticle">
+                    直接导入
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+
+      <Dictionary 
+        v-if="showDictionary" 
+        @close="showDictionary = false"
+        @open-article="(id: string) => { emit('openArticle', id); showDictionary = false; }"
+      />
     </Teleport>
   </div>
 </template>
 
 <style scoped>
+button, a, input, textarea, select {
+  -webkit-app-region: no-drag;
+}
+
 .article-list {
   min-height: 100vh;
   background: var(--bg-secondary);
@@ -656,17 +1015,23 @@ function handleImportAll(event: Event) {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  -webkit-app-region: no-drag;
 }
 
 .sidebar-logo {
   position: absolute;
   top: 1rem;
   left: 1rem;
+  -webkit-app-region: drag;
 }
 
 .sidebar-logo :deep(.logo-svg) {
   width: 24px;
   height: 24px;
+}
+
+.sidebar-spacer {
+  flex: 1;
 }
 
 .mobile-logo {
@@ -872,9 +1237,46 @@ function handleImportAll(event: Event) {
 }
 
 .settings-section {
-  margin-top: auto;
-  padding-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 0.5px solid var(--border-color);
+}
+
+.window-controls {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 0.625rem;
+  margin-top: 1rem;
   border-top: 1px solid var(--border-color);
+  justify-content: center;
+}
+
+.window-control-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  transition: all 0.15s;
+}
+
+.window-control-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.window-control-btn:hover {
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+}
+
+.window-control-btn.close:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--error-color);
 }
 
 .main-content {
@@ -882,6 +1284,7 @@ function handleImportAll(event: Event) {
   margin-left: 220px;
   padding: 1.5rem 2rem 6rem;
   max-width: 100%;
+  -webkit-app-region: no-drag;
 }
 
 .view-header {
@@ -898,6 +1301,45 @@ function handleImportAll(event: Event) {
   margin: 0;
 }
 
+.window-controls-fixed {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  display: flex;
+  gap: 0.5rem;
+  z-index: 1000;
+  -webkit-app-region: no-drag;
+}
+
+.window-control-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  transition: all 0.15s;
+}
+
+.window-control-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.window-control-btn:hover {
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+}
+
+.window-control-btn.close:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--error-color);
+}
+
 .empty-trash-btn {
   padding: 0.375rem 0.75rem;
   background: rgba(239, 68, 68, 0.1);
@@ -906,6 +1348,8 @@ function handleImportAll(event: Event) {
   border-radius: 6px;
   font-size: 0.75rem;
   cursor: pointer;
+  margin-bottom: 1rem;
+  display: inline-block;
 }
 
 .empty-trash-btn:hover {
@@ -1082,75 +1526,100 @@ function handleImportAll(event: Event) {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  padding: 1rem;
+  padding: 24px;
 }
 
 .modal {
-  background: var(--bg-primary);
-  border-radius: 2px;
+  background: #f5f5f7;
+  border-radius: 14px;
   width: 100%;
-  max-width: 600px;
-  max-height: 90vh;
+  max-width: 560px;
+  max-height: 85vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  box-shadow: 
+    0 32px 80px rgba(0, 0, 0, 0.24),
+    0 0 0 0.5px rgba(0, 0, 0, 0.08);
+}
+
+:global(.dark-mode) .modal {
+  background: #1c1c1e;
+  box-shadow: 
+    0 32px 80px rgba(0, 0, 0, 0.6),
+    0 0 0 0.5px rgba(255, 255, 255, 0.1);
 }
 
 .modal.sm {
-  max-width: 360px;
+  max-width: 400px;
 }
 
 .modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem 1.25rem;
-  border-bottom: 1px solid var(--border-color);
+  padding: 20px 24px;
+  border-bottom: 0.5px solid rgba(0, 0, 0, 0.08);
+}
+
+:global(.dark-mode) .modal-header {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
 }
 
 .modal-header h2 {
   margin: 0;
-  font-size: 1rem;
+  font-size: 18px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: #1d1d1f;
+  letter-spacing: -0.01em;
+}
+
+:global(.dark-mode) .modal-header h2 {
+  color: #f5f5f7;
 }
 
 .modal-close {
-  padding: 0.375rem;
-  background: var(--bg-tertiary);
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: 8px;
   cursor: pointer;
-  color: var(--text-secondary);
-  transition: all 0.2s ease;
+  color: #86868b;
+  transition: all 0.15s ease;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .modal-close svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
 }
 
 .modal-close:hover {
-  background: var(--border-color);
-  color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.06);
+  color: #1d1d1f;
+}
+
+:global(.dark-mode) .modal-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f5f5f7;
 }
 
 .modal-body {
-  padding: 1.25rem;
+  padding: 24px;
   overflow-y: auto;
 }
 
 .form-group {
-  margin-bottom: 1rem;
+  margin-bottom: 20px;
 }
 
 .form-group:last-child {
@@ -1159,85 +1628,107 @@ function handleImportAll(event: Event) {
 
 .form-group label {
   display: block;
-  margin-bottom: 0.375rem;
-  color: var(--text-secondary);
-  font-size: 0.8125rem;
+  margin-bottom: 8px;
+  color: #1d1d1f;
+  font-size: 14px;
   font-weight: 500;
 }
 
+:global(.dark-mode) .form-group label {
+  color: #f5f5f7;
+}
+
 .optional {
-  color: var(--text-tertiary);
+  color: #86868b;
   font-weight: 400;
 }
 
 .form-group input,
 .form-group textarea {
   width: 100%;
-  padding: 0.625rem 0.75rem;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  font-size: 0.875rem;
+  padding: 10px 14px;
+  border: 0.5px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  font-size: 14px;
   font-family: inherit;
   transition: all 0.2s ease;
   box-sizing: border-box;
-  background: var(--bg-secondary);
+  background: #ffffff;
+  color: #1d1d1f;
+}
+
+:global(.dark-mode) .form-group input,
+:global(.dark-mode) .form-group textarea {
+  background: #2c2c2e;
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #f5f5f7;
 }
 
 .form-group input:focus,
 .form-group textarea:focus {
   outline: none;
   border-color: var(--primary-color);
-  background: var(--bg-primary);
+  background: #ffffff;
+  box-shadow: 0 0 0 4px rgba(var(--primary-color-rgb), 0.12);
+}
+
+:global(.dark-mode) .form-group input:focus,
+:global(.dark-mode) .form-group textarea:focus {
+  background: #2c2c2e;
 }
 
 .form-group textarea {
-  resize: vertical;
-  min-height: 120px;
+  resize: none;
+  min-height: 140px;
   line-height: 1.6;
 }
 
 .modal-footer {
   display: flex;
-  gap: 0.5rem;
+  gap: 12px;
   justify-content: flex-end;
-  padding: 1rem 1.25rem;
-  border-top: 1px solid var(--border-color);
-  background: var(--bg-secondary);
+  padding: 14px 24px;
+  border-top: 0.5px solid rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+:global(.dark-mode) .modal-footer {
+  border-top-color: rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .btn-primary,
 .btn-secondary {
-  padding: 0.5rem 1rem;
-  border-radius: 4px;
-  font-size: 0.8125rem;
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
+  border: none;
 }
 
 .btn-primary {
   background: var(--primary-color);
-  color: var(--bg-primary);
-  border: none;
+  color: #ffffff;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--primary-color);
+  background: var(--primary-600);
 }
 
 .btn-primary:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
 .btn-secondary {
-  background: var(--bg-primary);
-  color: var(--text-secondary);
-  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--primary-color);
 }
 
 .btn-secondary:hover {
-  background: var(--bg-tertiary);
+  background: rgba(var(--primary-color-rgb), 0.08);
 }
 
 .folder-select-list {
@@ -1290,6 +1781,155 @@ function handleImportAll(event: Event) {
 .modal-enter-from .modal,
 .modal-leave-to .modal {
   transform: scale(0.95);
+}
+
+.markup-converter {
+  max-width: 1000px;
+}
+
+.converter-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  padding: 24px;
+}
+
+.converter-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.converter-section textarea {
+  width: 100%;
+  min-height: 240px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 13px;
+  padding: 12px 14px;
+  border: 0.5px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1d1d1f;
+  line-height: 1.6;
+  transition: all 0.2s ease;
+  resize: none;
+}
+
+:global(.dark-mode) .converter-section textarea {
+  background: #2c2c2e;
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #f5f5f7;
+}
+
+.converter-section textarea:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 4px rgba(var(--primary-color-rgb), 0.12);
+}
+
+.converter-tip {
+  padding: 12px 14px;
+  background: #f5f5f7;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #86868b;
+  margin-bottom: 16px;
+  line-height: 1.6;
+  border: 0.5px solid rgba(0, 0, 0, 0.05);
+}
+
+:global(.dark-mode) .converter-tip {
+  background: #2c2c2e;
+  color: #86868b;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.converter-tip code {
+  background: #ffffff;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'Courier New', Courier, monospace;
+  color: var(--primary-color);
+  font-size: 11px;
+}
+
+:global(.dark-mode) .converter-tip code {
+  background: #1c1c1e;
+}
+
+.convert-btn {
+  width: 100%;
+  margin-bottom: 16px;
+  padding: 10px 18px;
+  font-size: 14px;
+}
+
+.converter-error {
+  padding: 12px 14px;
+  background: rgba(255, 59, 48, 0.08);
+  border: 0.5px solid rgba(255, 59, 48, 0.2);
+  border-radius: 8px;
+  font-size: 13px;
+  color: #ff3b30;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1d1d1f;
+  margin-bottom: 8px;
+  letter-spacing: -0.01em;
+}
+
+:global(.dark-mode) .section-title {
+  color: #f5f5f7;
+}
+
+.converter-preview,
+.json-preview {
+  background: #f5f5f7;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 12px;
+  color: #1d1d1f;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 240px;
+  overflow-y: auto;
+  margin-bottom: 16px;
+  border: 0.5px solid rgba(0, 0, 0, 0.05);
+}
+
+:global(.dark-mode) .converter-preview,
+:global(.dark-mode) .json-preview {
+  background: #2c2c2e;
+  color: #f5f5f7;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.json-preview {
+  font-family: 'Courier New', Courier, monospace;
+}
+
+.converter-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: auto;
+}
+
+.converter-actions .btn-primary,
+.converter-actions .btn-secondary {
+  flex: 1;
+  padding: 10px 18px;
+}
+
+@media (max-width: 900px) {
+  .converter-body {
+    grid-template-columns: 1fr;
+  }
+  
+  .converter-actions {
+    margin-top: 1rem;
+  }
 }
 
 @media (max-width: 768px) {
@@ -1433,5 +2073,249 @@ function handleImportAll(event: Event) {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+.settings-panel {
+  padding: 2rem;
+}
+
+.settings-section {
+  margin-bottom: 28px;
+}
+
+.settings-section:last-child {
+  margin-bottom: 0;
+}
+
+.settings-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 10px 0;
+  letter-spacing: -0.01em;
+}
+
+.settings-card {
+  background: var(--bg-primary);
+  border-radius: 12px;
+  overflow: hidden;
+  border: 0.5px solid var(--border-color);
+}
+
+.setting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  min-height: 52px;
+  border-bottom: 0.5px solid var(--border-color);
+}
+
+.setting-row:last-child {
+  border-bottom: none;
+}
+
+.setting-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  padding-right: 16px;
+  min-width: 0;
+}
+
+.setting-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.setting-desc {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.setting-control {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.setting-input,
+.setting-select {
+  padding: 8px 12px;
+  border: 0.5px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  outline: none;
+  transition: all 0.2s ease;
+  min-width: 160px;
+  max-width: 200px;
+}
+
+.setting-input:focus,
+.setting-select:focus {
+  border-color: var(--primary-color);
+  background: var(--bg-primary);
+  box-shadow: 0 0 0 4px rgba(var(--primary-color-rgb), 0.12);
+}
+
+.api-key-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.api-input {
+  width: 160px;
+}
+
+.api-toggle {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  transition: all 0.15s ease;
+}
+
+.api-toggle:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.api-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
+.toggle {
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+}
+
+.toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.toggle-track {
+  display: block;
+  width: 51px;
+  height: 31px;
+  background: var(--bg-tertiary);
+  border-radius: 31px;
+  position: relative;
+  transition: background 0.2s ease;
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 27px;
+  height: 27px;
+  background: var(--bg-primary);
+  border-radius: 50%;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.08);
+  transition: transform 0.25s cubic-bezier(0.36, 0, 0.18, 1);
+}
+
+.toggle input:checked + .toggle-track {
+  background: #34c759;
+}
+
+.toggle input:checked + .toggle-track .toggle-thumb {
+  transform: translateX(20px);
+}
+
+.scale-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.scale-input {
+  width: 140px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-tertiary);
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.scale-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--bg-primary);
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  border: 0.5px solid rgba(0, 0, 0, 0.1);
+}
+
+.scale-input::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--bg-primary);
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.scale-value {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  min-width: 40px;
+  text-align: right;
+}
+
+@media (max-width: 768px) {
+  .settings-panel {
+    padding: 1rem;
+  }
+
+  .setting-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .setting-info {
+    padding-right: 0;
+  }
+
+  .setting-control {
+    width: 100%;
+  }
+
+  .setting-input,
+  .setting-select {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .api-key-wrapper {
+    width: 100%;
+  }
+
+  .api-input {
+    flex: 1;
+  }
 }
 </style>

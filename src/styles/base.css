@@ -49,24 +49,45 @@ body {
   color: var(--text-primary);
 }
 
-/* 滚动条样式 */
+/* 统一滚动条样式 */
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
   background: transparent;
-  border-radius: 2px;
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
-  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+  transition: background 0.2s;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+/* 滚动条隐藏类 - 隐藏滚动条但保留滚动功能 */
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* 滚动条显示类 - 强制显示滚动条 */
+.scrollbar-visible::-webkit-scrollbar {
+  display: block;
+}
+
+.scrollbar-visible {
+  -ms-overflow-style: auto;
+  scrollbar-width: auto;
 }
 
 /* App容器 */

@@ -10,7 +10,17 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+dist-electron
 *.local
+
+# Electron
+build-electron
+test-electron
+
+# Temporary files
+exchang.py
+output.json
+dist.zip
 
 # Editor directories and files
 .vscode/*
