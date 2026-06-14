@@ -44,6 +44,152 @@ export function useReader(article: Ref<Article | undefined>, checkAnnotationExis
     'sans-serif'
   ]
 
+  const cachedFormattedContent = ref('')
+  let lastContentVersion = ''
+
+  function generateContentVersion(art: Article | undefined): string {
+    if (!art) return ''
+    return `${art.content.length}-${art.formats.length}-${art.annotations.length}-${art.updatedAt}`
+  }
+
+  function buildFormatIndexMaps(formats: TextFormat[]): {
+    starts: Map<number, TextFormat[]>
+    ends: Map<number, TextFormat[]>
+  } {
+    const sortedFormats = [...formats].sort((a, b) => a.startIndex - b.startIndex)
+    const formatStarts = new Map<number, TextFormat[]>()
+    const formatEnds = new Map<number, TextFormat[]>()
+
+    for (const format of sortedFormats) {
+      if (!formatStarts.has(format.startIndex)) {
+        formatStarts.set(format.startIndex, [])
+      }
+      formatStarts.get(format.startIndex)!.push(format)
+
+      if (!formatEnds.has(format.endIndex)) {
+        formatEnds.set(format.endIndex, [])
+      }
+      formatEnds.get(format.endIndex)!.push(format)
+    }
+
+    return { starts: formatStarts, ends: formatEnds }
+  }
+
+  function buildAnnotationIndexMaps(annotations: Annotation[]): {
+    starts: Map<number, Annotation[]>
+    ends: Map<number, Annotation[]>
+  } {
+    const annotationStarts = new Map<number, Annotation[]>()
+    const annotationEnds = new Map<number, Annotation[]>()
+
+    for (const ann of annotations) {
+      if (!annotationStarts.has(ann.startIndex)) {
+        annotationStarts.set(ann.startIndex, [])
+      }
+      annotationStarts.get(ann.startIndex)!.push(ann)
+
+      if (!annotationEnds.has(ann.endIndex)) {
+        annotationEnds.set(ann.endIndex, [])
+      }
+      annotationEnds.get(ann.endIndex)!.push(ann)
+    }
+
+    return { starts: annotationStarts, ends: annotationEnds }
+  }
+
+  function generateHTML(
+    chars: string[],
+    formatMaps: { starts: Map<number, TextFormat[]>, ends: Map<number, TextFormat[]> },
+    annotationMaps: { starts: Map<number, Annotation[]>, ends: Map<number, Annotation[]> },
+    annotations: Annotation[],
+    getAnnotationDepth: Function,
+    expandedAnnotations: Set<string>,
+    annotationLockMode: string
+  ): string {
+    const result: string[] = []
+
+    for (let i = 0; i < chars.length; i++) {
+      if (annotationMaps.starts.has(i)) {
+        const startingAnns = annotationMaps.starts.get(i)!
+        for (const ann of startingAnns) {
+          const depth = getAnnotationDepth(ann, annotations)
+          result.push(`<span class="ann-highlight ann-depth-${depth}" data-id="${ann.id}">`)
+        }
+      }
+
+      if (formatMaps.starts.has(i)) {
+        const starts = formatMaps.starts.get(i)!
+        for (const format of starts) {
+          if (format.type === 'bold') {
+            result.push('<strong>')
+          } else if (format.type === 'underline') {
+            result.push('<u>')
+          }
+        }
+      }
+
+      result.push(chars[i])
+
+      if (formatMaps.ends.has(i + 1)) {
+        const ends = formatMaps.ends.get(i + 1)!
+        for (const format of ends) {
+          if (format.type === 'bold') {
+            result.push('</strong>')
+          } else if (format.type === 'underline') {
+            result.push('</u>')
+          }
+        }
+      }
+
+      if (annotationMaps.ends.has(i + 1)) {
+        const endingAnns = annotationMaps.ends.get(i + 1)!
+        for (const ann of endingAnns) {
+          const depth = getAnnotationDepth(ann, annotations)
+          const isExpanded = annotationLockMode === 'locked' || annotationLockMode === 'all-expanded' || expandedAnnotations.has(ann.id)
+          result.push('</span>')
+          result.push(`<span class="ann-note ann-depth-${depth}" data-id="${ann.id}" data-content="${ann.content.replace(/"/g, '&quot;')}" data-expanded="${isExpanded}"></span>`)
+        }
+      }
+    }
+
+    return result.join('')
+  }
+
+  function computeFormattedContent(
+    getAnnotationDepth: Function,
+    expandedAnnotations: Set<string>,
+    annotationLockMode: string
+  ): string {
+    if (!article.value) return ''
+    
+    const content = article.value.content
+    const chars = content.split('')
+    const annotations = article.value.annotations
+    
+    const formatMaps = buildFormatIndexMaps(article.value.formats)
+    const annotationMaps = buildAnnotationIndexMaps(annotations)
+    
+    return generateHTML(chars, formatMaps, annotationMaps, annotations, getAnnotationDepth, expandedAnnotations, annotationLockMode)
+  }
+
+  function getFormattedContent(
+    getAnnotationDepth: Function,
+    expandedAnnotations: Set<string>,
+    annotationLockMode: string
+  ) {
+    const currentVersion = generateContentVersion(article.value) + `-${annotationLockMode}-${Array.from(expandedAnnotations).join(',')}`
+    
+    if (currentVersion === lastContentVersion && cachedFormattedContent.value) {
+      return cachedFormattedContent.value
+    }
+    
+    const result = computeFormattedContent(getAnnotationDepth, expandedAnnotations, annotationLockMode)
+    cachedFormattedContent.value = result
+    lastContentVersion = currentVersion
+    
+    return result
+  }
+
   onMounted(async () => {
     try {
       const fonts = await (window as any).queryLocalFonts?.()
@@ -268,93 +414,6 @@ export function useReader(article: Ref<Article | undefined>, checkAnnotationExis
   function selectFont(font: string, updateSettings: Function) {
     updateSettings({ fontFamily: font })
     showFontPicker.value = false
-  }
-
-  function getFormattedContent(getAnnotationDepth: Function) {
-    if (!article.value) return ''
-
-    const content = article.value.content
-    const chars = content.split('')
-    const annotations = article.value.annotations
-
-    const sortedFormats = [...article.value.formats].sort((a, b) => a.startIndex - b.startIndex)
-
-    const formatStarts = new Map<number, TextFormat[]>()
-    const formatEnds = new Map<number, TextFormat[]>()
-
-    for (const format of sortedFormats) {
-      if (!formatStarts.has(format.startIndex)) {
-        formatStarts.set(format.startIndex, [])
-      }
-      formatStarts.get(format.startIndex)!.push(format)
-
-      if (!formatEnds.has(format.endIndex)) {
-        formatEnds.set(format.endIndex, [])
-      }
-      formatEnds.get(format.endIndex)!.push(format)
-    }
-
-    const annotationStarts = new Map<number, Annotation[]>()
-    const annotationEnds = new Map<number, Annotation[]>()
-
-    for (const ann of annotations) {
-      if (!annotationStarts.has(ann.startIndex)) {
-        annotationStarts.set(ann.startIndex, [])
-      }
-      annotationStarts.get(ann.startIndex)!.push(ann)
-
-      if (!annotationEnds.has(ann.endIndex)) {
-        annotationEnds.set(ann.endIndex, [])
-      }
-      annotationEnds.get(ann.endIndex)!.push(ann)
-    }
-
-    let result = ''
-
-    for (let i = 0; i < chars.length; i++) {
-      if (annotationStarts.has(i)) {
-        const startingAnns = annotationStarts.get(i)!
-        for (const ann of startingAnns) {
-          const depth = getAnnotationDepth(ann, annotations)
-          result += `<span class="ann-highlight ann-depth-${depth}" data-id="${ann.id}">`
-        }
-      }
-
-      if (formatStarts.has(i)) {
-        const starts = formatStarts.get(i)!
-        for (const format of starts) {
-          if (format.type === 'bold') {
-            result += '<strong>'
-          } else if (format.type === 'underline') {
-            result += '<u>'
-          }
-        }
-      }
-
-      result += chars[i]
-
-      if (formatEnds.has(i + 1)) {
-        const ends = formatEnds.get(i + 1)!
-        for (const format of ends) {
-          if (format.type === 'bold') {
-            result += '</strong>'
-          } else if (format.type === 'underline') {
-            result += '</u>'
-          }
-        }
-      }
-
-      if (annotationEnds.has(i + 1)) {
-        const endingAnns = annotationEnds.get(i + 1)!
-        for (const ann of endingAnns) {
-          const depth = getAnnotationDepth(ann, annotations)
-          result += `</span>`
-          result += `<span class="ann-note ann-depth-${depth}" data-id="${ann.id}" data-content="${ann.content.replace(/"/g, '&quot;')}" data-expanded="true"></span>`
-        }
-      }
-    }
-
-    return result
   }
 
   // 用于跟踪触摸事件，防止移动端click事件重复触发

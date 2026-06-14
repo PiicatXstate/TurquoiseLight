@@ -4,7 +4,9 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('electron', {
   minimize: () => ipcRenderer.send('minimize'),
   maximize: () => ipcRenderer.send('maximize'),
-  close: () => ipcRenderer.send('close')
+  close: () => ipcRenderer.send('close'),
+  printToPDF: (options) => ipcRenderer.invoke('print-to-pdf', options),
+  printWithPreview: (options) => ipcRenderer.invoke('print-with-preview', options)
 })
 
 window.addEventListener('DOMContentLoaded', () => {

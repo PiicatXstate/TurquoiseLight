@@ -89,9 +89,13 @@ const {
   editingAnnotationId,
   editingAnnotationContent,
   annotationError,
+  expandedAnnotations,
+  annotationLockMode,
   handleAISelectionAnnotation,
   confirmAddAIAnnotation,
   cancelAIAnnotation,
+  toggleAnnotation,
+  setAnnotationMode,
   startEditAnnotation,
   saveEditAnnotation,
   cancelEditAnnotation,
@@ -134,12 +138,447 @@ const {
   getFormattedContent,
   handleContentClick,
   calculateTextPosition,
-  handlePrint,
   startResize,
   startSplitResize
 } = reader
 
 const dictionaryInitialQuery = ref('')
+
+// 打印预览相关
+interface PrintOptions {
+  showAnnotations: boolean
+  showFormats: boolean
+  fontSize: string
+  pageMargin: string
+  includeBackground: boolean
+  showPageNumbers: boolean
+}
+
+const showPrintPreview = ref(false)
+const printOptions = ref<PrintOptions>({
+  showAnnotations: true,
+  showFormats: true,
+  fontSize: '12',
+  pageMargin: 'normal',
+  includeBackground: true,
+  showPageNumbers: true
+})
+const printPreviewContent = ref('')
+
+const printPageStyle = computed(() => {
+  return {
+    fontSize: `${printOptions.value.fontSize}pt`,
+    lineHeight: '1.8'
+  }
+})
+
+// 监听打印选项变化，自动更新预览
+watch([
+  () => printOptions.value.showAnnotations,
+  () => printOptions.value.showFormats,
+  () => printOptions.value.fontSize,
+  () => printOptions.value.pageMargin
+], () => {
+  if (showPrintPreview.value) {
+    updatePrintPreview()
+  }
+})
+
+// 生成打印预览内容
+function updatePrintPreview() {
+  printPreviewContent.value = generatePrintContent()
+}
+
+// 打开打印预览
+function openPrintPreview() {
+  showPrintPreview.value = true
+  updatePrintPreview()
+}
+
+// 关闭打印预览
+function closePrintPreview() {
+  showPrintPreview.value = false
+}
+
+// 执行打印（先转PDF再打开预览）
+async function executePrint() {
+  if (!article.value) return
+  
+  // 生成打印内容
+  const titleHtml = printOptions.value.showFormats 
+    ? `<h1 style="font-size: 14pt; font-weight: 600; text-align: center; margin: 0 0 0.75rem 0; color: #111827;">${article.value.title}</h1>`
+    : ''
+  
+  const content = generatePrintContent()
+  
+  // 生成页眉和页脚
+  const header = printOptions.value.showPageNumbers 
+    ? `<div style="font-size: 0.75rem; color: #9ca3af; text-align: center; padding-bottom: 0.5rem; border-bottom: 1px solid #e5e7eb; margin-bottom: 1rem;">${article.value.title}</div>`
+    : ''
+  
+  const footer = printOptions.value.showPageNumbers 
+    ? `<div style="font-size: 0.75rem; color: #9ca3af; text-align: center; padding-top: 0.5rem; border-top: 1px solid #e5e7eb; margin-top: 1rem;">第 1 页</div>`
+    : ''
+  
+  const fullContent = `
+    ${header}
+    ${titleHtml}
+    <div style="white-space: pre-wrap; word-break: break-word;">${content}</div>
+    ${footer}
+  `
+  
+  // 检查是否在 Electron 环境中
+  const electron = window.electron as any
+  if (electron && electron.printWithPreview) {
+    try {
+      const result = await electron.printWithPreview({
+        filename: `${article.value.title}.pdf`,
+        content: fullContent,
+        header: header,
+        footer: footer,
+        fontSize: `${printOptions.value.fontSize}pt`,
+        margin: getPageMarginCSS()
+      })
+      
+      if (result.success) {
+        closePrintPreview()
+      } else if (!result.canceled) {
+        alert(`打印失败：${result.error}`)
+      }
+    } catch (error: any) {
+      console.error('打印失败:', error)
+      alert(`打印失败：${error.message}`)
+    }
+  } else {
+    // 浏览器环境：使用打印窗口
+    const printWindow = window.open('', '_blank', 'width=900,height=800,toolbar=0,menubar=0,scrollbars=1,resizable=1')
+    
+    if (!printWindow) {
+      alert('无法打开打印预览窗口，请检查浏览器的弹窗阻止设置')
+      return
+    }
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>打印预览 - ${article.value.title}</title>
+        <style>
+          * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          body { margin: 0; padding: 2rem; background: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+          .print-container { background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 1.5in; max-width: 800px; margin: 0 auto; min-height: 100vh; box-sizing: border-box; }
+          h1 { font-size: 14pt; font-weight: 600; text-align: center; margin: 0 0 0.75rem 0; color: #111827; }
+          strong { font-weight: 600; }
+          @media print {
+            body { padding: 0; background: white; }
+            .print-container { box-shadow: none; padding: 0; margin: 0; max-width: none; }
+            .print-actions { display: none; }
+            @page { size: A4; margin: ${getPageMarginCSS()}; }
+          }
+          .print-actions { display: flex; justify-content: center; gap: 0.75rem; margin-top: 2rem; padding: 1rem; background: #f8f9fa; border-radius: 8px; }
+          .print-btn { padding: 0.5rem 1.5rem; font-size: 0.875rem; font-weight: 500; border-radius: 6px; border: none; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 0.5rem; }
+          .print-btn-primary { background: #007AFF; color: white; }
+          .print-btn-secondary { background: white; color: #374151; border: 1px solid #d1d5db; }
+          .print-btn-secondary:hover { background: #f3f4f6; }
+        </style>
+      </head>
+      <body>
+        <div class="print-container">
+          ${fullContent}
+        </div>
+        <div class="print-actions">
+          <button class="print-btn print-btn-secondary" onclick="window.close()">关闭</button>
+          <button class="print-btn print-btn-primary" onclick="window.print()">打印</button>
+        </div>
+      </body>
+      </html>
+    `)
+    
+    printWindow.document.close()
+    closePrintPreview()
+  }
+}
+
+// 导出为 PDF
+async function exportToPDF() {
+  if (!article.value) return
+  
+  // 生成打印内容
+  const content = generatePrintContent()
+  
+  // 生成页眉和页脚
+  const header = printOptions.value.showPageNumbers 
+    ? `<div style="font-size: 0.75rem; color: #9ca3af; text-align: center; padding-bottom: 0.5rem; border-bottom: 1px solid #e5e7eb; margin-bottom: 1rem;">${article.value.title}</div>`
+    : ''
+  
+  const footer = printOptions.value.showPageNumbers 
+    ? `<div style="font-size: 0.75rem; color: #9ca3af; text-align: center; padding-top: 0.5rem; border-top: 1px solid #e5e7eb; margin-top: 1rem;">第 1 页</div>`
+    : ''
+  
+  // 添加标题
+  const titleHtml = printOptions.value.showFormats 
+    ? `<h1 style="font-size: 14pt; font-weight: 600; text-align: center; margin: 0 0 0.75rem 0; color: #111827;">${article.value.title}</h1>`
+    : ''
+  
+  const fullContent = `
+    ${header}
+    ${titleHtml}
+    <div style="white-space: pre-wrap; word-break: break-word;">${content}</div>
+    ${footer}
+  `
+  
+  // 检查是否在 Electron 环境中
+  const electron = window.electron as any
+  if (electron && electron.printToPDF) {
+    try {
+      const result = await electron.printToPDF({
+        filename: `${article.value.title}.pdf`,
+        content: fullContent,
+        header: header,
+        footer: footer,
+        fontSize: `${printOptions.value.fontSize}pt`,
+        margin: getPageMarginCSS()
+      })
+      
+      if (result.success) {
+        alert(`PDF 已成功导出到：${result.filePath}`)
+        closePrintPreview()
+      } else if (!result.canceled) {
+        alert(`导出失败：${result.error}`)
+      }
+    } catch (error: any) {
+      console.error('PDF 导出失败:', error)
+      alert(`导出失败：${error.message}`)
+    }
+  } else {
+    // 浏览器环境：使用打印窗口
+    const printWindow = window.open('', '_blank', 'width=800,height=600')
+    
+    if (!printWindow) {
+      alert('无法打开打印窗口，请检查浏览器的弹窗阻止设置')
+      return
+    }
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>导出 PDF - ${article.value.title}</title>
+        <style>
+          @page {
+            size: A4;
+            margin: ${getPageMarginCSS()};
+          }
+          body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            font-size: ${printOptions.value.fontSize}pt;
+            line-height: 1.8;
+            color: #1f2937;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          strong {
+            font-weight: 600;
+          }
+        </style>
+      </head>
+      <body>
+        ${fullContent}
+      </body>
+      </html>
+    `)
+    
+    printWindow.document.close()
+    
+    printWindow.onload = () => {
+      setTimeout(() => {
+        printWindow.print()
+        closePrintPreview()
+      }, 200)
+    }
+  }
+}
+
+// 导出为 Word
+function exportToWord() {
+  if (!article.value) return
+  
+  // 生成打印内容
+  const content = generatePrintContent()
+  
+  // 生成 Word 文档 HTML
+  const titleHtml = printOptions.value.showFormats 
+    ? `<h1 style="font-size: 18pt; font-weight: 600; text-align: center; margin: 0 0 1rem 0;">${article.value.title}</h1>`
+    : ''
+  
+  const header = printOptions.value.showPageNumbers 
+    ? `<div style="font-size: 10pt; color: #6b7280; text-align: center; padding-bottom: 8pt; border-bottom: 1px solid #e5e7eb; margin-bottom: 12pt;">${article.value.title}</div>`
+    : ''
+  
+  const footer = printOptions.value.showPageNumbers 
+    ? `<div style="font-size: 10pt; color: #6b7280; text-align: center; padding-top: 8pt; border-top: 1px solid #e5e7eb; margin-top: 12pt;">第 1 页</div>`
+    : ''
+  
+  // 生成 Word 兼容的 HTML
+  const htmlContent = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+    <head>
+      <meta charset="UTF-8">
+      <title>${article.value.title}</title>
+      <style>
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+          font-size: ${printOptions.value.fontSize}pt;
+          line-height: 1.8;
+          color: #1f2937;
+          margin: ${getPageMarginCSS()};
+        }
+        h1 {
+          font-size: 18pt;
+          font-weight: 600;
+          text-align: center;
+          margin: 0 0 1rem 0;
+        }
+        strong {
+          font-weight: 600;
+        }
+      </style>
+    </head>
+    <body>
+      ${header}
+      ${titleHtml}
+      <div style="white-space: pre-wrap; word-break: break-word;">${content}</div>
+      ${footer}
+    </body>
+    </html>
+  `
+  
+  // 创建 Blob 并下载
+  const blob = new Blob([htmlContent], { type: 'application/msword' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${article.value.title}.doc`
+  
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+  
+  closePrintPreview()
+}
+
+// 生成打印内容（和预览相同的逻辑）
+function generatePrintContent(): string {
+  if (!article.value) return ''
+  
+  const content = article.value.content
+  const chars = content.split('')
+  const result: string[] = []
+  
+  const annotations = article.value.annotations
+  const formats = article.value.formats
+  
+  const annotationStarts = new Map<number, typeof annotations>()
+  const annotationEnds = new Map<number, typeof annotations>()
+  const formatStarts = new Map<number, typeof formats>()
+  const formatEnds = new Map<number, typeof formats>()
+  
+  if (printOptions.value.showAnnotations) {
+    for (const ann of annotations) {
+      if (!annotationStarts.has(ann.startIndex)) {
+        annotationStarts.set(ann.startIndex, [])
+      }
+      annotationStarts.get(ann.startIndex)!.push(ann)
+      
+      if (!annotationEnds.has(ann.endIndex)) {
+        annotationEnds.set(ann.endIndex, [])
+      }
+      annotationEnds.get(ann.endIndex)!.push(ann)
+    }
+  }
+  
+  if (printOptions.value.showFormats) {
+    for (const format of formats) {
+      if (!formatStarts.has(format.startIndex)) {
+        formatStarts.set(format.startIndex, [])
+      }
+      formatStarts.get(format.startIndex)!.push(format)
+      
+      if (!formatEnds.has(format.endIndex)) {
+        formatEnds.set(format.endIndex, [])
+      }
+      formatEnds.get(format.endIndex)!.push(format)
+    }
+  }
+  
+  for (let i = 0; i < chars.length; i++) {
+    if (printOptions.value.showAnnotations && annotationStarts.has(i)) {
+      result.push('<span style="background: #fff9c4; border: 1px dashed #f57f17; border-radius: 2px; padding: 0 2px;">')
+    }
+    
+    if (printOptions.value.showFormats && formatStarts.has(i)) {
+      const starts = formatStarts.get(i)!
+      for (const format of starts) {
+        if (format.type === 'bold') {
+          result.push('<strong>')
+        } else if (format.type === 'underline') {
+          result.push('<span style="background: linear-gradient(90deg, #1e40af 0%, #1e40af 100%) 0 100% / 100% 2px no-repeat; padding-bottom: 1px; border-radius: 2px;">')
+        }
+      }
+    }
+    
+    // 处理特殊字符
+    if (chars[i] === '\n') {
+      result.push('\n')
+    } else if (chars[i] === ' ') {
+      result.push(' ')
+    } else {
+      result.push(chars[i])
+    }
+    
+    if (printOptions.value.showFormats && formatEnds.has(i + 1)) {
+      const ends = formatEnds.get(i + 1)!
+      for (const format of ends) {
+        if (format.type === 'bold') {
+          result.push('</strong>')
+        } else if (format.type === 'underline') {
+          result.push('</span>')
+        }
+      }
+    }
+    
+    if (printOptions.value.showAnnotations && annotationEnds.has(i + 1)) {
+      const endingAnns = annotationEnds.get(i + 1)!
+      result.push('</span>')
+      for (const ann of endingAnns) {
+        result.push(`<span style="font-size: 85%; color: #1e40af; font-weight: 500; margin-left: 4px;">[${ann.content}]</span>`)
+      }
+    }
+  }
+  
+  return result.join('')
+}
+
+function getPageMarginCSS(): string {
+  switch (printOptions.value.pageMargin) {
+    case 'small':
+      return '0.5in'
+    case 'large':
+      return '1.5in'
+    default:
+      return '1in'
+  }
+}
+
+// 处理打印 - 重写 handlePrint
+function handlePrintWrapper() {
+  openPrintPreview()
+}
 
 // 监听AI聊天面板的显示状态，保存和恢复滚动位置
 watch(showAIChat, (newValue, oldValue) => {
@@ -238,12 +677,12 @@ function selectFontWrapper(font: string) {
 
 // 处理内容点击
 function handleContentClickWrapper(e: MouseEvent | TouchEvent) {
-  handleContentClick(e, () => {})
+  handleContentClick(e, toggleAnnotation)
 }
 
 // 获取格式化内容
 function getFormattedContentWrapper() {
-  return getFormattedContent(getAnnotationDepth)
+  return getFormattedContent(getAnnotationDepth, expandedAnnotations.value, annotationLockMode.value)
 }
 
 // 处理AI关于选中内容的询问
@@ -370,7 +809,7 @@ function toggleAIChat() {
           </button>
         </template>
         <span v-if="isSharedArticle" class="shared-badge">来自广场</span>
-        <button v-if="!isEditing" class="btn-icon" @click="handlePrint" title="打印">
+        <button v-if="!isEditing" class="btn-icon" @click="handlePrintWrapper" title="打印">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="6,9 6,2 18,2 18,9"></polyline>
             <path d="M6,18H4a2,2,0,0,1-2-2V9a2,2,0,0,1,2-2H20a2,2,0,0,1,2,2v7a2,2,0,0,1-2,2H18"></path>
@@ -529,6 +968,29 @@ function toggleAIChat() {
               </svg>
             </button>
           </div>
+          <div class="ann-controls">
+            <button class="ann-mode-btn" :class="{ active: annotationLockMode === 'normal' }" @click="setAnnotationMode('normal', article)" title="普通模式">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+              </svg>
+            </button>
+            <button class="ann-mode-btn" :class="{ active: annotationLockMode === 'locked' }" @click="setAnnotationMode('locked', article)" title="锁定展开">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+              </svg>
+            </button>
+            <button class="ann-mode-btn" :class="{ active: annotationLockMode === 'all-expanded' }" @click="setAnnotationMode('all-expanded', article)" title="全部展开">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="18 15 12 9 6 15"></polyline>
+              </svg>
+            </button>
+            <button class="ann-mode-btn" :class="{ active: annotationLockMode === 'all-collapsed' }" @click="setAnnotationMode('all-collapsed', article)" title="全部折叠">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+          </div>
           <div class="resize-handle" @mousedown="startResize"></div>
           <div class="panel-body scrollbar-visible">
             <div v-if="selectedText && !isSharedArticle" class="new-ann">
@@ -624,6 +1086,29 @@ function toggleAIChat() {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <line x1="18" y1="6" x2="6" y2="18"></line>
                   <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+            <div class="ann-controls">
+              <button class="ann-mode-btn" :class="{ active: annotationLockMode === 'normal' }" @click="setAnnotationMode('normal', article)" title="普通模式">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                </svg>
+              </button>
+              <button class="ann-mode-btn" :class="{ active: annotationLockMode === 'locked' }" @click="setAnnotationMode('locked', article)" title="锁定展开">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+              </button>
+              <button class="ann-mode-btn" :class="{ active: annotationLockMode === 'all-expanded' }" @click="setAnnotationMode('all-expanded', article)" title="全部展开">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="18 15 12 9 6 15"></polyline>
+                </svg>
+              </button>
+              <button class="ann-mode-btn" :class="{ active: annotationLockMode === 'all-collapsed' }" @click="setAnnotationMode('all-collapsed', article)" title="全部折叠">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="6 9 12 15 18 9"></polyline>
                 </svg>
               </button>
             </div>
@@ -1205,6 +1690,136 @@ function toggleAIChat() {
         </div>
       </Transition>
 
+      <!-- 打印预览对话框 -->
+      <Transition name="dialog">
+        <div v-if="showPrintPreview" class="dialog-overlay print-overlay" @click.stop>
+          <div class="dialog-content print-dialog">
+            <div class="print-dialog-header">
+              <button class="dialog-close" @click="closePrintPreview">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+            <div class="dialog-body print-body">
+              <div class="print-controls">
+                <div class="control-group">
+                  <label>打印选项</label>
+                  <div class="control-options">
+                    <label class="checkbox-label">
+                      <input type="checkbox" v-model="printOptions.showAnnotations">
+                      <span>显示注释</span>
+                    </label>
+                    <label class="checkbox-label">
+                      <input type="checkbox" v-model="printOptions.showFormats">
+                      <span>显示格式（加粗、下划线）</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div class="control-group">
+                  <label>字体大小</label>
+                  <div class="control-options">
+                    <select v-model="printOptions.fontSize">
+                      <option value="10">小 (10pt)</option>
+                      <option value="12">标准 (12pt)</option>
+                      <option value="14">大 (14pt)</option>
+                      <option value="16">特大 (16pt)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="control-group">
+                  <label>页边距</label>
+                  <div class="control-options">
+                    <select v-model="printOptions.pageMargin">
+                      <option value="small">小</option>
+                      <option value="normal">标准</option>
+                      <option value="large">大</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="control-group">
+                  <label>打印效果</label>
+                  <div class="control-options">
+                    <label class="checkbox-label">
+                      <input type="checkbox" v-model="printOptions.includeBackground">
+                      <span>包含背景色</span>
+                    </label>
+                    <label class="checkbox-label">
+                      <input type="checkbox" v-model="printOptions.showPageNumbers">
+                      <span>显示页码</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="print-preview-area">
+                <div class="preview-header">
+                  <span>预览</span>
+                  <button class="btn-text" @click="updatePrintPreview" title="刷新预览">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="23,4 23,10 17,10"></polyline>
+                      <polyline points="1,20 1,14 7,14"></polyline>
+                      <path d="M3.51,9a9,9,0,0,1,14.85-3.36L23,10M1,14l4.64,4.36A9,9,0,0,0,20.49,15"></path>
+                    </svg>
+                    刷新
+                  </button>
+                </div>
+                <div class="preview-container">
+                  <div class="print-page" :class="`margin-${printOptions.pageMargin}`">
+                    <div class="page-header" v-if="printOptions.showPageNumbers">
+                      <span class="page-title">{{ article.title }}</span>
+                    </div>
+                    <div class="page-content" :style="printPageStyle">
+                      <div v-if="printOptions.showFormats" class="article-title">{{ article.title }}</div>
+                      <div v-html="printPreviewContent"></div>
+                    </div>
+                    <div class="page-footer" v-if="printOptions.showPageNumbers">
+                      <span class="page-number">第 1 页</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="dialog-footer">
+              <div class="left-actions">
+                <button class="btn-text" @click="closePrintPreview">取消</button>
+              </div>
+              <div class="right-actions">
+                <button class="btn-secondary" @click="exportToWord" title="导出为 Word">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14,2 14,8 20,8"></polyline>
+                    <text x="7" y="16" font-size="8" font-weight="600" fill="currentColor" stroke="none">W</text>
+                    <text x="14" y="16" font-size="8" font-weight="600" fill="currentColor" stroke="none">X</text>
+                  </svg>
+                  Word
+                </button>
+                <button class="btn-secondary pdf-btn" @click="exportToPDF" title="导出为 PDF">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14,2 14,8 20,8"></polyline>
+                    <text x="6" y="17" font-size="6" font-weight="600" fill="currentColor" stroke="none">PDF</text>
+                  </svg>
+                  PDF
+                </button>
+                <button class="btn-primary" @click="executePrint">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="6,9 6,2 18,2 18,9"></polyline>
+                    <path d="M6,18H4a2,2,0,0,1-2-2V9a2,2,0,0,1,2-2H20a2,2,0,0,1,2,2v7a2,2,0,0,1-2,2H18"></path>
+                    <rect x="6" y="14" width="12" height="8"></rect>
+                  </svg>
+                  打印
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+
     </Teleport>
   </div>
 </template>
@@ -1281,15 +1896,19 @@ function toggleAIChat() {
 }
 
 .btn-primary {
-  padding: 0.375rem 0.75rem;
+  padding: 0.375rem 1rem;
   background: var(--primary-color);
   color: var(--bg-primary);
   border: none;
-  border-radius: 6px;
-  font-size: 0.8125rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
 }
 
 .btn-primary:hover {
@@ -1317,6 +1936,32 @@ function toggleAIChat() {
 
 .btn-text:hover {
   color: var(--text-primary);
+}
+
+.btn-secondary {
+  padding: 0.375rem 1rem;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 0.5px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.btn-secondary:hover {
+  background: var(--bg-primary);
+  border-color: var(--primary-color);
+}
+
+.btn-secondary svg {
+  width: 16px;
+  height: 16px;
 }
 
 .shared-badge {
@@ -1469,10 +2114,10 @@ function toggleAIChat() {
 }
 
 .content :deep(u) {
-  text-decoration: underline;
-  text-decoration-color: var(--primary-color);
-  text-decoration-thickness: 2px;
-  text-underline-offset: 3px;
+  text-decoration: none;
+  background: linear-gradient(90deg, var(--primary-color) 0%, var(--primary-color) 100%) 0 100% / 100% 2px no-repeat;
+  padding-bottom: 1px;
+  border-radius: 2px;
 }
 
 .content :deep(.ann-highlight) {
@@ -1652,6 +2297,57 @@ function toggleAIChat() {
 
 .split-divider-v:hover {
   background: var(--primary-color);
+}
+
+.ann-controls {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 0.5px solid rgba(0, 0, 0, 0.08);
+  flex-shrink: 0;
+}
+
+:global(.dark-mode) .ann-controls {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.ann-mode-btn {
+  flex: 1;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f5f5f7;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #86868b;
+  transition: all 0.15s;
+}
+
+:global(.dark-mode) .ann-mode-btn {
+  background: #2c2c2e;
+  color: #86868b;
+}
+
+.ann-mode-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ann-mode-btn:hover {
+  background: #e9e9eb;
+  color: #1d1d1f;
+}
+
+:global(.dark-mode) .ann-mode-btn:hover {
+  background: #3a3a3c;
+  color: #f5f5f7;
+}
+
+.ann-mode-btn.active {
+  background: rgba(var(--primary-color-rgb), 0.15);
+  color: var(--primary-color);
 }
 
 .panel-header {
@@ -2261,12 +2957,83 @@ function toggleAIChat() {
     padding: 0.5rem;
   }
 
+  .ann-controls {
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px 8px;
+  }
+
+  .ann-mode-btn {
+    min-width: calc(25% - 3px);
+    height: 28px;
+  }
+
   .dict-suggestions {
     max-height: 100px;
   }
 
   .dict-suggestion-item {
     padding: 0.25rem 0.375rem;
+  }
+
+  .print-dialog {
+    width: 95vw;
+    height: 90vh;
+  }
+
+  .print-body {
+    flex-direction: column;
+  }
+
+  .print-controls {
+    width: 100%;
+    height: auto;
+    max-height: 30vh;
+    overflow-y: auto;
+    padding-right: 0;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .print-preview-area {
+    border-left: none;
+    padding-left: 0;
+    padding-top: 1rem;
+  }
+
+  .control-group {
+    margin-bottom: 1rem;
+  }
+
+  .control-options {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .checkbox-label {
+    flex: 1;
+    min-width: 45%;
+  }
+
+  .preview-container {
+    padding: 0.5rem;
+  }
+
+  .print-page {
+    max-width: 100%;
+    min-height: 400px;
+  }
+
+  .print-page.margin-small {
+    padding: 0.25in;
+  }
+
+  .print-page.margin-normal {
+    padding: 0.5in;
+  }
+
+  .print-page.margin-large {
+    padding: 0.75in;
   }
 }
 
@@ -2580,11 +3347,82 @@ function toggleAIChat() {
 
   .dialog-footer {
     display: flex;
-    justify-content: flex-end;
-    gap: 0.75rem;
-    padding: 1.5rem;
-    border-top: 1px solid var(--border-color);
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+    border-top: 0.5px solid var(--border-color);
     background: var(--bg-secondary);
+  }
+
+  .dialog-footer .left-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .dialog-footer .right-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .dialog-footer .btn-primary {
+    padding: 0.5rem 1.25rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: 6px;
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    box-shadow: none;
+    transition: background 0.15s;
+  }
+
+  .dialog-footer .btn-primary:hover {
+    background: var(--primary-600, #0056b3);
+    transform: none;
+  }
+
+  .dialog-footer .btn-secondary {
+    padding: 0.5rem 1rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    border-radius: 6px;
+    background: #f5f5f7;
+    color: #1d1d1f;
+    border: 1px solid #e5e5ea;
+    box-shadow: none;
+    transition: all 0.15s;
+  }
+
+  .dialog-footer .btn-secondary:hover {
+    background: #e8e8ed;
+    border-color: #d1d1d6;
+    transform: none;
+  }
+
+  .dialog-footer .btn-secondary.pdf-btn {
+    background: #fff5f5;
+    border-color: #fecaca;
+    color: #dc2626;
+  }
+
+  .dialog-footer .btn-secondary.pdf-btn:hover {
+    background: #fee2e2;
+    border-color: #fca5a5;
+  }
+
+  .dialog-footer .btn-text {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    border-radius: 6px;
+    color: var(--text-secondary);
+    transition: all 0.15s;
+  }
+
+  .dialog-footer .btn-text:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
   }
 
   .ai-annotation-selected {
@@ -3086,6 +3924,272 @@ function toggleAIChat() {
     40% {
       transform: scale(1);
     }
+  }
+
+  .print-overlay {
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.4);
+  }
+
+  .print-dialog {
+    max-width: 90vw;
+    max-height: 90vh;
+    width: 1200px;
+    height: 85vh;
+    display: flex;
+    flex-direction: column;
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+    overflow: hidden;
+    border: none;
+  }
+
+  .print-dialog-header {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: #f8f9fa;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  .print-dialog-header .dialog-close {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    color: #6b7280;
+    transition: all 0.15s;
+  }
+
+  .print-dialog-header .dialog-close:hover {
+    background: #e5e7eb;
+    color: #1f2937;
+  }
+
+  .print-dialog-header .dialog-close svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .print-body {
+    flex: 1;
+    display: flex;
+    gap: 0;
+    min-height: 0;
+    background: #ffffff;
+  }
+
+  .print-controls {
+    width: 260px;
+    flex-shrink: 0;
+    overflow-y: auto;
+    padding: 1.25rem;
+    background: #fafafa;
+    border-right: 1px solid #e5e7eb;
+  }
+
+  .control-group {
+    margin-bottom: 1.25rem;
+  }
+
+  .control-group label:first-child {
+    display: block;
+    font-weight: 600;
+    font-size: 0.75rem;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 0.5rem;
+  }
+
+  .control-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+    color: #374151;
+    cursor: pointer;
+    user-select: none;
+    padding: 0.375rem 0.5rem;
+    border-radius: 6px;
+    transition: background 0.15s;
+  }
+
+  .checkbox-label:hover {
+    background: #f3f4f6;
+  }
+
+  .checkbox-label input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--primary-color, #007AFF);
+  }
+
+  .control-options select {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    background: #ffffff;
+    color: #1f2937;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.5rem center;
+    background-size: 16px;
+    padding-right: 2rem;
+  }
+
+  .control-options select:focus {
+    outline: none;
+    border-color: var(--primary-color, #007AFF);
+    box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+  }
+
+  .print-preview-area {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 1.25rem;
+    background: #f5f5f5;
+  }
+
+  .preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.75rem;
+    border-bottom: none;
+  }
+
+  .preview-header span {
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: #1f2937;
+  }
+
+  .preview-header .btn-text {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    transition: background 0.15s;
+    color: #6b7280;
+  }
+
+  .preview-header .btn-text:hover {
+    background: #e5e7eb;
+    color: #1f2937;
+  }
+
+  .preview-header .btn-text svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .preview-container {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    background: #e5e7eb;
+    border-radius: 6px;
+    padding: 1.25rem;
+    border: none;
+  }
+
+  .print-page {
+    background: white;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    margin: 0 auto;
+    max-width: 700px;
+    min-height: 850px;
+    box-sizing: border-box;
+    position: relative;
+    border-radius: 4px;
+  }
+
+  .print-page.margin-small {
+    padding: 0.5in;
+  }
+
+  .print-page.margin-normal {
+    padding: 1in;
+  }
+
+  .print-page.margin-large {
+    padding: 1.5in;
+  }
+
+  .page-header,
+  .page-footer {
+    font-size: 0.75rem;
+    color: #9ca3af;
+    text-align: center;
+    padding: 0.625rem 0;
+  }
+
+  .page-header {
+    border-bottom: 0.5px solid #e5e7eb;
+    margin-bottom: 1rem;
+  }
+
+  .page-footer {
+    border-top: 0.5px solid #e5e7eb;
+    margin-top: 1rem;
+  }
+
+  .page-content {
+    line-height: 1.8;
+    color: #1f2937;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .page-content .article-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    text-align: center;
+    margin-bottom: 1rem;
+    color: #111827;
+  }
+
+  .print-underline {
+    background: linear-gradient(90deg, #1e40af 0%, #1e40af 100%) 0 100% / 100% 2px no-repeat;
+    padding-bottom: 1px;
+    border-radius: 2px;
+  }
+
+  .print-highlight {
+    background: #fff9c4;
+    border: 1px dashed #f57f17;
+    border-radius: 2px;
+    padding: 0 2px;
+  }
+
+  .print-note {
+    font-size: 85%;
+    color: #1e40af;
+    font-weight: 500;
+    margin-left: 4px;
   }
 
   .error-message {
